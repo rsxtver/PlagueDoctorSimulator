@@ -16,7 +16,7 @@ local ChangeHistoryService = game:GetService("ChangeHistoryService")
 local ScriptEditorService = game:GetService("ScriptEditorService")
 
 local recording = ChangeHistoryService:TryBeginRecording("Install Plague Doctor Simulator")
-local created, updated = 0, 0
+local created, updated, removed = 0, 0, 0
 local N = {} -- созданные объекты (таблица, а не locals: у Luau лимит 200 локальных)
 
 local function ensure(parent: Instance, name: string, className: string, props: { [string]: any }?): Instance
@@ -40,6 +40,17 @@ local function ensure(parent: Instance, name: string, className: string, props: 
 	return instance
 end
 
+local function removeObsolete(path: string)
+	local instance: Instance? = game
+	for _, name in string.split(path, "/") do
+		instance = instance and instance:FindFirstChild(name)
+	end
+	if instance then
+		instance.Parent = nil -- через Parent, а не Destroy: так работает Ctrl+Z
+		removed += 1
+	end
+end
+
 local function setSource(script: Instance, source: string)
 	local luaScript = script :: LuaSourceContainer
 	if (luaScript :: any).Source == source then
@@ -59,10 +70,11 @@ end
 N[1] = game:GetService("ReplicatedStorage")
 N[2] = ensure(N[1], "Remotes", "Folder")
 N[3] = ensure(N[2], "Notify", "RemoteEvent")
-N[4] = ensure(N[1], "Shared", "Folder")
-N[5] = ensure(N[4], "Config", "ModuleScript")
-setSource(N[5], [[
--- ModuleScript: ReplicatedStorage -> Shared -> Config
+N[4] = ensure(N[2], "BuyUpgrade", "RemoteFunction")
+N[5] = ensure(N[1], "Shared", "Folder")
+N[6] = ensure(N[5], "GameConfig", "ModuleScript")
+setSource(N[6], [[
+-- ModuleScript: ReplicatedStorage -> Shared -> GameConfig
 -- Все игровые числа в одном месте (читают и сервер, и клиент).
 
 local Config = {}
@@ -97,6 +109,20 @@ Config.Pharmacy = {
 	GoldPerMiasma = 1,
 }
 
+-- Плащ: скорость ходьбы
+Config.Cloak = {
+	BaseWalkSpeed = 16,
+	WalkSpeedPerLevel = 2, -- прибавка за каждый уровень выше первого
+}
+
+-- Апгрейды за золото. Цена перехода с уровня L на L+1 = BaseCost * CostGrowth^(L-1)
+Config.Upgrades = {
+	Order = { "Mask", "Tool", "Cloak" }, -- порядок в магазине
+	Mask = { Title = "Маска", Description = "Вместимость миазмов", BaseCost = 30, CostGrowth = 2.2, MaxLevel = 10 },
+	Tool = { Title = "Ланцет", Description = "Сила лечения за клик", BaseCost = 40, CostGrowth = 2.4, MaxLevel = 10 },
+	Cloak = { Title = "Плащ", Description = "Скорость ходьбы", BaseCost = 25, CostGrowth = 2.0, MaxLevel = 8 },
+}
+
 local function scaled(base: number, perLevel: number, level: number): number
 	return math.floor(base * perLevel ^ (math.max(level, 1) - 1) + 0.5)
 end
@@ -109,11 +135,36 @@ function Config.GetToolPower(level: number): number
 	return scaled(Config.Tool.BasePower, Config.Tool.PowerPerLevel, level)
 end
 
+function Config.GetWalkSpeed(level: number): number
+	return Config.Cloak.BaseWalkSpeed + Config.Cloak.WalkSpeedPerLevel * (math.max(level, 1) - 1)
+end
+
+-- Значение эффекта апгрейда на уровне level (для магазина и сервера)
+function Config.GetUpgradeValue(name: string, level: number): number
+	if name == "Mask" then
+		return Config.GetMaskCapacity(level)
+	elseif name == "Tool" then
+		return Config.GetToolPower(level)
+	elseif name == "Cloak" then
+		return Config.GetWalkSpeed(level)
+	end
+	error(`Неизвестный апгрейд: {name}`)
+end
+
+-- Цена следующего уровня или nil, если уровень максимальный
+function Config.GetUpgradeCost(name: string, level: number): number?
+	local info = Config.Upgrades[name]
+	if not info or level >= info.MaxLevel then
+		return nil
+	end
+	return math.floor(info.BaseCost * info.CostGrowth ^ (level - 1) + 0.5)
+end
+
 return Config
 ]])
-N[6] = game:GetService("ServerScriptService")
-N[7] = ensure(N[6], "MainServer", "Script")
-setSource(N[7], [[
+N[7] = game:GetService("ServerScriptService")
+N[8] = ensure(N[7], "MainServer", "Script")
+setSource(N[8], [[
 -- Script: ServerScriptService -> MainServer
 -- Точка входа сервера: запускает все сервисы по порядку.
 
@@ -123,16 +174,18 @@ local Services = ServerScriptService:WaitForChild("Services")
 local DataService = require(Services:WaitForChild("DataService"))
 local InfectedService = require(Services:WaitForChild("InfectedService"))
 local PharmacyService = require(Services:WaitForChild("PharmacyService"))
+local UpgradeService = require(Services:WaitForChild("UpgradeService"))
 
 DataService.Init()
 InfectedService.Init()
 PharmacyService.Init()
+UpgradeService.Init()
 
 print("[MainServer] Plague Doctor Simulator: сервер запущен")
 ]])
-N[8] = ensure(N[6], "Services", "Folder")
-N[9] = ensure(N[8], "DataService", "ModuleScript")
-setSource(N[9], [[
+N[9] = ensure(N[7], "Services", "Folder")
+N[10] = ensure(N[9], "DataService", "ModuleScript")
+setSource(N[10], [[
 -- ModuleScript: ServerScriptService -> Services -> DataService
 -- Загрузка, хранение в памяти и сохранение данных игроков (только сервер).
 
@@ -327,6 +380,13 @@ local function syncKey(player: Player, profile: Profile, key: string)
 	end
 end
 
+-- Уровни апгрейдов -> атрибуты Upgrade_Mask, Upgrade_Tool, ... (для магазина в UI)
+local function syncUpgrades(player: Player, profile: Profile)
+	for name, level in profile.Data.Upgrades do
+		player:SetAttribute(`Upgrade_{name}`, level)
+	end
+end
+
 local function createLeaderstats(player: Player, profile: Profile)
 	local folder = Instance.new("Folder")
 	folder.Name = "leaderstats" -- имя строго в нижнем регистре
@@ -360,6 +420,7 @@ local function onPlayerAdded(player: Player)
 	for key in data do
 		syncKey(player, profile, key)
 	end
+	syncUpgrades(player, profile)
 	player:SetAttribute("DataLoaded", true)
 end
 
@@ -413,6 +474,16 @@ function DataService.Increment(player: Player, key: string, delta: number): numb
 	return newValue
 end
 
+-- Ставит уровень апгрейда (Mask/Tool/Cloak). Проверки цены — на вызывающем сервисе.
+function DataService.SetUpgradeLevel(player: Player, name: string, level: number)
+	local profile = profiles[player]
+	if not profile then
+		return
+	end
+	(profile.Data.Upgrades :: any)[name] = level
+	syncUpgrades(player, profile)
+end
+
 function DataService.Init()
 	if initialized then
 		return
@@ -449,15 +520,15 @@ end
 
 return DataService
 ]])
-N[10] = ensure(N[8], "InfectedService", "ModuleScript")
-setSource(N[10], [[
+N[11] = ensure(N[9], "InfectedService", "ModuleScript")
+setSource(N[11], [[
 -- ModuleScript: ServerScriptService -> Services -> InfectedService
 -- Заражённые жители: появление в деревне, лечение кликом, сбор миазмов в маску.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
+local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("GameConfig"))
 local DataService = require(script.Parent:WaitForChild("DataService"))
 local notify = require(script.Parent:WaitForChild("Notify"))
 
@@ -474,18 +545,6 @@ local lastHit: { [Player]: number } = {}
 local lastFullWarn: { [Player]: number } = {}
 local initialized = false
 local random = Random.new()
-
-----------------------------------------------------------------
--- Снаряжение игрока (атрибуты читает HUD)
-----------------------------------------------------------------
-function InfectedService.RefreshEquipment(player: Player)
-	local data = DataService.Get(player)
-	if not data then
-		return
-	end
-	player:SetAttribute("MaskCapacity", Config.GetMaskCapacity(data.Upgrades.Mask))
-	player:SetAttribute("ToolPower", Config.GetToolPower(data.Upgrades.Tool))
-end
 
 ----------------------------------------------------------------
 -- Модель больного
@@ -732,15 +791,6 @@ function InfectedService.Init()
 	folder = workspace:WaitForChild("Zones"):WaitForChild("Village"):WaitForChild("Infected") :: Folder
 	folder:ClearAllChildren()
 
-	local function onPlayerAdded(player: Player)
-		if DataService.WaitForData(player) then
-			InfectedService.RefreshEquipment(player)
-		end
-	end
-	Players.PlayerAdded:Connect(onPlayerAdded)
-	for _, player in Players:GetPlayers() do
-		task.spawn(onPlayerAdded, player)
-	end
 	Players.PlayerRemoving:Connect(function(player)
 		lastHit[player] = nil
 		lastFullWarn[player] = nil
@@ -753,8 +803,8 @@ end
 
 return InfectedService
 ]])
-N[11] = ensure(N[8], "Notify", "ModuleScript")
-setSource(N[11], [[
+N[12] = ensure(N[9], "Notify", "ModuleScript")
+setSource(N[12], [[
 -- ModuleScript: ServerScriptService -> Services -> Notify
 -- Всплывающие сообщения игроку (показывает HUD на клиенте).
 
@@ -767,15 +817,15 @@ return function(player: Player, text: string, kind: string?)
 	remote:FireClient(player, text, kind or "info")
 end
 ]])
-N[12] = ensure(N[8], "PharmacyService", "ModuleScript")
-setSource(N[12], [[
+N[13] = ensure(N[9], "PharmacyService", "ModuleScript")
+setSource(N[13], [[
 -- ModuleScript: ServerScriptService -> Services -> PharmacyService
 -- Аптека: встал на зелёную площадку — миазмы из маски обменялись на золото.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
+local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("GameConfig"))
 local DataService = require(script.Parent:WaitForChild("DataService"))
 local notify = require(script.Parent:WaitForChild("Notify"))
 
@@ -860,10 +910,128 @@ end
 
 return PharmacyService
 ]])
-N[13] = game:GetService("StarterPlayer")
-N[14] = ensure(N[13], "StarterPlayerScripts", "StarterPlayerScripts")
-N[15] = ensure(N[14], "HUD", "LocalScript")
-setSource(N[15], [[
+N[14] = ensure(N[9], "UpgradeService", "ModuleScript")
+setSource(N[14], [[
+-- ModuleScript: ServerScriptService -> Services -> UpgradeService
+-- Покупка апгрейдов (Маска, Ланцет, Плащ) за золото и применение их эффектов.
+-- Клиент только просит купить по имени — цену, золото и уровень проверяет сервер.
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("GameConfig"))
+local DataService = require(script.Parent:WaitForChild("DataService"))
+local notify = require(script.Parent:WaitForChild("Notify"))
+
+local UpgradeService = {}
+
+local REQUEST_COOLDOWN = 0.25 -- не чаще 4 покупок в секунду
+local lastRequest: { [Player]: number } = {}
+local initialized = false
+
+local VALID: { [string]: boolean } = {}
+for _, name in Config.Upgrades.Order do
+	VALID[name] = true
+end
+
+----------------------------------------------------------------
+-- Эффекты
+----------------------------------------------------------------
+local function applyWalkSpeed(player: Player)
+	local data = DataService.Get(player)
+	local humanoid = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
+	if data and humanoid then
+		humanoid.WalkSpeed = Config.GetWalkSpeed(data.Upgrades.Cloak)
+	end
+end
+
+-- Пересчитывает атрибуты снаряжения (их читает HUD) и скорость персонажа
+function UpgradeService.Refresh(player: Player)
+	local data = DataService.Get(player)
+	if not data then
+		return
+	end
+	player:SetAttribute("MaskCapacity", Config.GetMaskCapacity(data.Upgrades.Mask))
+	player:SetAttribute("ToolPower", Config.GetToolPower(data.Upgrades.Tool))
+	player:SetAttribute("WalkSpeed", Config.GetWalkSpeed(data.Upgrades.Cloak))
+	applyWalkSpeed(player)
+end
+
+----------------------------------------------------------------
+-- Покупка
+----------------------------------------------------------------
+
+-- Возвращает (успех, сообщение для игрока)
+function UpgradeService.Buy(player: Player, name: any): (boolean, string)
+	if type(name) ~= "string" or not VALID[name] then
+		return false, "Неизвестный апгрейд"
+	end
+	local data = DataService.Get(player)
+	if not data then
+		return false, "Данные ещё загружаются"
+	end
+
+	local info = Config.Upgrades[name]
+	local level = (data.Upgrades :: any)[name] :: number
+	local cost = Config.GetUpgradeCost(name, level)
+	if not cost then
+		return false, `{info.Title}: максимальный уровень`
+	end
+	if data.Gold < cost then
+		return false, `Не хватает золота: нужно {cost}`
+	end
+
+	DataService.Increment(player, "Gold", -cost)
+	DataService.SetUpgradeLevel(player, name, level + 1)
+	UpgradeService.Refresh(player)
+	return true, `{info.Title} улучшен до уровня {level + 1}!`
+end
+
+local function onBuyRequest(player: Player, name: any): (boolean, string)
+	local now = os.clock()
+	if now - (lastRequest[player] or 0) < REQUEST_COOLDOWN then
+		return false, "Слишком часто"
+	end
+	lastRequest[player] = now
+
+	local ok, message = UpgradeService.Buy(player, name)
+	notify(player, message, if ok then "good" else "warn")
+	return ok, message
+end
+
+function UpgradeService.Init()
+	if initialized then
+		return
+	end
+	initialized = true
+
+	local remote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("BuyUpgrade") :: RemoteFunction
+	remote.OnServerInvoke = onBuyRequest
+
+	local function onPlayerAdded(player: Player)
+		player.CharacterAdded:Connect(function(character)
+			character:WaitForChild("Humanoid")
+			applyWalkSpeed(player)
+		end)
+		if DataService.WaitForData(player) then
+			UpgradeService.Refresh(player)
+		end
+	end
+	Players.PlayerAdded:Connect(onPlayerAdded)
+	for _, player in Players:GetPlayers() do
+		task.spawn(onPlayerAdded, player)
+	end
+	Players.PlayerRemoving:Connect(function(player)
+		lastRequest[player] = nil
+	end)
+end
+
+return UpgradeService
+]])
+N[15] = game:GetService("StarterPlayer")
+N[16] = ensure(N[15], "StarterPlayerScripts", "StarterPlayerScripts")
+N[17] = ensure(N[16], "HUD", "LocalScript")
+setSource(N[17], [[
 -- LocalScript: StarterPlayer -> StarterPlayerScripts -> HUD
 -- Интерфейс: шкала миазмов в маске, золото, всплывающие сообщения.
 -- Данные берутся из атрибутов игрока, которые выставляет сервер.
@@ -1021,18 +1189,249 @@ notifyRemote.OnClientEvent:Connect(function(text: string, kind: string)
 	end)
 end)
 ]])
-N[16] = game:GetService("ServerStorage")
-N[17] = ensure(N[16], "NPCTemplates", "Folder")
-N[18] = ensure(N[16], "PetModels", "Folder")
-N[19] = game:GetService("Workspace")
-N[20] = ensure(N[19], "Zones", "Folder")
-N[21] = ensure(N[20], "Village", "Folder")
-N[22] = ensure(N[21], "Infected", "Folder")
-N[23] = ensure(N[21], "Pharmacy", "Folder")
-N[24] = ensure(N[23], "SellPart", "Part", { Anchored = true, CanCollide = false, Transparency = 0.5, Size = Vector3.new(12, 1, 12), Position = Vector3.new(0, 0.5, 30), Color = Color3.new(0.25, 0.85, 0.35), Material = Enum.Material.Neon })
+N[18] = ensure(N[16], "Shop", "LocalScript")
+setSource(N[18], [[
+-- LocalScript: StarterPlayer -> StarterPlayerScripts -> Shop
+-- Окно апгрейдов: кнопка «Улучшения» и карточки Маски, Ланцета и Плаща.
+-- Клиент только показывает цены и отправляет запрос — покупку проверяет сервер.
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local UserInputService = game:GetService("UserInputService")
+
+local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("GameConfig"))
+local buyRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("BuyUpgrade") :: RemoteFunction
+
+local player = Players.LocalPlayer
+
+local BG = Color3.fromRGB(20, 22, 18)
+local CARD = Color3.fromRGB(38, 40, 34)
+local GOLD = Color3.fromRGB(255, 210, 80)
+local BUY = Color3.fromRGB(70, 150, 60)
+local BUY_DISABLED = Color3.fromRGB(70, 70, 70)
+local TEXT = Color3.fromRGB(235, 235, 235)
+local MUTED = Color3.fromRGB(170, 170, 160)
+
+local EFFECT_FORMAT = {
+	Mask = function(v: number) return `{v} миазмов` end,
+	Tool = function(v: number) return `{v} за клик` end,
+	Cloak = function(v: number) return `скорость {v}` end,
+}
+
+----------------------------------------------------------------
+-- Утилиты UI
+----------------------------------------------------------------
+local function corner(parent: Instance, radius: number)
+	local c = Instance.new("UICorner")
+	c.CornerRadius = UDim.new(0, radius)
+	c.Parent = parent
+end
+
+local function text(parent: Instance, name: string, size: UDim2, pos: UDim2, color: Color3, font: Enum.Font?): TextLabel
+	local l = Instance.new("TextLabel")
+	l.Name = name
+	l.Size = size
+	l.Position = pos
+	l.BackgroundTransparency = 1
+	l.Font = font or Enum.Font.GothamBold
+	l.TextScaled = true
+	l.TextColor3 = color
+	l.TextXAlignment = Enum.TextXAlignment.Left
+	l.Parent = parent
+	return l
+end
+
+----------------------------------------------------------------
+-- Построение
+----------------------------------------------------------------
+local gui = Instance.new("ScreenGui")
+gui.Name = "Shop"
+gui.ResetOnSpawn = false
+gui.DisplayOrder = 10 -- окно поверх HUD
+
+-- Кнопка над панелью статистики (левый нижний угол)
+local openButton = Instance.new("TextButton")
+openButton.Name = "OpenButton"
+openButton.AnchorPoint = Vector2.new(0, 1)
+openButton.Position = UDim2.new(0, 16, 1, -116)
+openButton.Size = UDim2.fromOffset(160, 40)
+openButton.BackgroundColor3 = Color3.fromRGB(120, 85, 40)
+openButton.Font = Enum.Font.GothamBold
+openButton.TextScaled = true
+openButton.TextColor3 = Color3.new(1, 1, 1)
+openButton.Text = "Улучшения [E]"
+openButton.Parent = gui
+corner(openButton, 8)
+local buttonPadding = Instance.new("UIPadding")
+buttonPadding.PaddingTop = UDim.new(0, 8)
+buttonPadding.PaddingBottom = UDim.new(0, 8)
+buttonPadding.Parent = openButton
+
+-- Окно по центру
+local window = Instance.new("Frame")
+window.Name = "Window"
+window.AnchorPoint = Vector2.new(0.5, 0.5)
+window.Position = UDim2.fromScale(0.5, 0.5)
+window.Size = UDim2.new(0.92, 0, 0, 330)
+window.BackgroundColor3 = BG
+window.BackgroundTransparency = 0.05
+window.Visible = false
+window.Parent = gui
+corner(window, 12)
+local sizeLimit = Instance.new("UISizeConstraint")
+sizeLimit.MaxSize = Vector2.new(640, 330)
+sizeLimit.Parent = window
+
+local title = text(window, "Title", UDim2.new(1, -80, 0, 32), UDim2.fromOffset(16, 12), TEXT)
+title.Text = "Снаряжение доктора"
+
+local goldLabel = text(window, "Gold", UDim2.new(0.5, 0, 0, 22), UDim2.fromOffset(16, 48), GOLD, Enum.Font.GothamMedium)
+
+local closeButton = Instance.new("TextButton")
+closeButton.Name = "Close"
+closeButton.AnchorPoint = Vector2.new(1, 0)
+closeButton.Position = UDim2.new(1, -12, 0, 12)
+closeButton.Size = UDim2.fromOffset(36, 36)
+closeButton.BackgroundColor3 = Color3.fromRGB(150, 50, 45)
+closeButton.Font = Enum.Font.GothamBold
+closeButton.TextSize = 20
+closeButton.TextColor3 = Color3.new(1, 1, 1)
+closeButton.Text = "X"
+closeButton.Parent = window
+corner(closeButton, 8)
+
+local cards = Instance.new("Frame")
+cards.Name = "Cards"
+cards.Position = UDim2.fromOffset(12, 82)
+cards.Size = UDim2.new(1, -24, 1, -94)
+cards.BackgroundTransparency = 1
+cards.Parent = window
+
+local layout = Instance.new("UIListLayout")
+layout.FillDirection = Enum.FillDirection.Vertical
+layout.Padding = UDim.new(0, 8)
+layout.SortOrder = Enum.SortOrder.LayoutOrder
+layout.Parent = cards
+
+type Card = { Level: TextLabel, Effect: TextLabel, Button: TextButton }
+local cardByName: { [string]: Card } = {}
+
+for index, name in Config.Upgrades.Order do
+	local info = Config.Upgrades[name]
+	local card = Instance.new("Frame")
+	card.Name = name
+	card.LayoutOrder = index
+	card.Size = UDim2.new(1, 0, 0, 70)
+	card.BackgroundColor3 = CARD
+	card.Parent = cards
+	corner(card, 8)
+
+	local cardTitle = text(card, "Title", UDim2.new(0.6, -12, 0, 24), UDim2.fromOffset(12, 8), TEXT)
+	cardTitle.Text = info.Title
+	local level = text(card, "Level", UDim2.new(0.6, -12, 0, 16), UDim2.fromOffset(12, 32), MUTED, Enum.Font.GothamMedium)
+	local effect = text(card, "Effect", UDim2.new(0.6, -12, 0, 16), UDim2.fromOffset(12, 48), MUTED, Enum.Font.GothamMedium)
+
+	local button = Instance.new("TextButton")
+	button.Name = "Buy"
+	button.AnchorPoint = Vector2.new(1, 0.5)
+	button.Position = UDim2.new(1, -10, 0.5, 0)
+	button.Size = UDim2.new(0.38, 0, 0, 46)
+	button.Font = Enum.Font.GothamBold
+	button.TextScaled = true
+	button.TextColor3 = Color3.new(1, 1, 1)
+	button.Parent = card
+	corner(button, 8)
+	local pad = Instance.new("UIPadding")
+	pad.PaddingTop = UDim.new(0, 10)
+	pad.PaddingBottom = UDim.new(0, 10)
+	pad.PaddingLeft = UDim.new(0, 6)
+	pad.PaddingRight = UDim.new(0, 6)
+	pad.Parent = button
+
+	cardByName[name] = { Level = level, Effect = effect, Button = button }
+
+	local busy = false
+	button.Activated:Connect(function()
+		if busy then
+			return
+		end
+		busy = true
+		pcall(function()
+			buyRemote:InvokeServer(name) -- результат покажет всплывающее сообщение HUD
+		end)
+		busy = false
+	end)
+end
+
+gui.Parent = player:WaitForChild("PlayerGui")
+
+----------------------------------------------------------------
+-- Обновление
+----------------------------------------------------------------
+local function refresh()
+	local gold = player:GetAttribute("Gold") or 0
+	goldLabel.Text = `Золото: {gold}`
+
+	for name, card in cardByName do
+		local info = Config.Upgrades[name]
+		local level = player:GetAttribute(`Upgrade_{name}`) or 1
+		local cost = Config.GetUpgradeCost(name, level)
+		local format = EFFECT_FORMAT[name]
+		local current = format(Config.GetUpgradeValue(name, level))
+
+		card.Level.Text = `{info.Description} · ур. {level}/{info.MaxLevel}`
+		if cost then
+			card.Effect.Text = `{current} → {format(Config.GetUpgradeValue(name, level + 1))}`
+			card.Button.Text = `Купить: {cost}`
+			card.Button.BackgroundColor3 = if gold >= cost then BUY else BUY_DISABLED
+			card.Button.AutoButtonColor = gold >= cost
+		else
+			card.Effect.Text = current
+			card.Button.Text = "Максимум"
+			card.Button.BackgroundColor3 = BUY_DISABLED
+			card.Button.AutoButtonColor = false
+		end
+	end
+end
+
+player:GetAttributeChangedSignal("Gold"):Connect(refresh)
+for _, name in Config.Upgrades.Order do
+	player:GetAttributeChangedSignal(`Upgrade_{name}`):Connect(refresh)
+end
+refresh()
+
+local function setOpen(open: boolean)
+	window.Visible = open
+	if open then
+		refresh()
+	end
+end
+
+openButton.Activated:Connect(function()
+	setOpen(not window.Visible)
+end)
+closeButton.Activated:Connect(function()
+	setOpen(false)
+end)
+UserInputService.InputBegan:Connect(function(input, processed)
+	if not processed and input.KeyCode == Enum.KeyCode.E then
+		setOpen(not window.Visible)
+	end
+end)
+]])
+N[19] = game:GetService("ServerStorage")
+N[20] = ensure(N[19], "NPCTemplates", "Folder")
+N[21] = ensure(N[19], "PetModels", "Folder")
+N[22] = game:GetService("Workspace")
+N[23] = ensure(N[22], "Zones", "Folder")
+N[24] = ensure(N[23], "Village", "Folder")
+N[25] = ensure(N[24], "Infected", "Folder")
+N[26] = ensure(N[24], "Pharmacy", "Folder")
+N[27] = ensure(N[26], "SellPart", "Part", { Anchored = true, CanCollide = false, Transparency = 0.5, Size = Vector3.new(12, 1, 12), Position = Vector3.new(0, 0.5, 30), Color = Color3.new(0.25, 0.85, 0.35), Material = Enum.Material.Neon })
+removeObsolete("ReplicatedStorage/Shared/Config")
 
 if recording then
 	ChangeHistoryService:FinishRecording(recording, Enum.FinishRecordingOperation.Commit)
 end
-print(`[Installer] Готово! Создано объектов: {created}, обновлено скриптов: {updated}`)
+print(`[Installer] Готово! Создано объектов: {created}, обновлено скриптов: {updated}, удалено устаревших: {removed}`)
 print("[Installer] Не забудьте: Game Settings -> Security -> Enable Studio Access to API Services")

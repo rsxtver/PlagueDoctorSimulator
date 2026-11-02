@@ -4,7 +4,7 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
+local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("GameConfig"))
 local DataService = require(script.Parent:WaitForChild("DataService"))
 local notify = require(script.Parent:WaitForChild("Notify"))
 
@@ -21,18 +21,6 @@ local lastHit: { [Player]: number } = {}
 local lastFullWarn: { [Player]: number } = {}
 local initialized = false
 local random = Random.new()
-
-----------------------------------------------------------------
--- Снаряжение игрока (атрибуты читает HUD)
-----------------------------------------------------------------
-function InfectedService.RefreshEquipment(player: Player)
-	local data = DataService.Get(player)
-	if not data then
-		return
-	end
-	player:SetAttribute("MaskCapacity", Config.GetMaskCapacity(data.Upgrades.Mask))
-	player:SetAttribute("ToolPower", Config.GetToolPower(data.Upgrades.Tool))
-end
 
 ----------------------------------------------------------------
 -- Модель больного
@@ -279,15 +267,6 @@ function InfectedService.Init()
 	folder = workspace:WaitForChild("Zones"):WaitForChild("Village"):WaitForChild("Infected") :: Folder
 	folder:ClearAllChildren()
 
-	local function onPlayerAdded(player: Player)
-		if DataService.WaitForData(player) then
-			InfectedService.RefreshEquipment(player)
-		end
-	end
-	Players.PlayerAdded:Connect(onPlayerAdded)
-	for _, player in Players:GetPlayers() do
-		task.spawn(onPlayerAdded, player)
-	end
 	Players.PlayerRemoving:Connect(function(player)
 		lastHit[player] = nil
 		lastFullWarn[player] = nil

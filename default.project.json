@@ -7,7 +7,8 @@
       "$className": "ReplicatedStorage",
       "Remotes": {
         "$className": "Folder",
-        "Notify": { "$className": "RemoteEvent" }
+        "Notify": { "$className": "RemoteEvent" },
+        "BuyUpgrade": { "$className": "RemoteFunction" }
       },
       "Shared": { "$path": "src/ReplicatedStorage/Shared" }
     },
@@ -22,7 +23,8 @@
       "$className": "StarterPlayer",
       "StarterPlayerScripts": {
         "$className": "StarterPlayerScripts",
-        "HUD": { "$path": "src/StarterPlayer/StarterPlayerScripts/HUD.client.luau" }
+        "HUD": { "$path": "src/StarterPlayer/StarterPlayerScripts/HUD.client.luau" },
+        "Shop": { "$path": "src/StarterPlayer/StarterPlayerScripts/Shop.client.luau" }
       }
     },
 

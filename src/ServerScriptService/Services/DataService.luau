@@ -192,6 +192,13 @@ local function syncKey(player: Player, profile: Profile, key: string)
 	end
 end
 
+-- Уровни апгрейдов -> атрибуты Upgrade_Mask, Upgrade_Tool, ... (для магазина в UI)
+local function syncUpgrades(player: Player, profile: Profile)
+	for name, level in profile.Data.Upgrades do
+		player:SetAttribute(`Upgrade_{name}`, level)
+	end
+end
+
 local function createLeaderstats(player: Player, profile: Profile)
 	local folder = Instance.new("Folder")
 	folder.Name = "leaderstats" -- имя строго в нижнем регистре
@@ -225,6 +232,7 @@ local function onPlayerAdded(player: Player)
 	for key in data do
 		syncKey(player, profile, key)
 	end
+	syncUpgrades(player, profile)
 	player:SetAttribute("DataLoaded", true)
 end
 
@@ -276,6 +284,16 @@ function DataService.Increment(player: Player, key: string, delta: number): numb
 	data[key] = newValue
 	syncKey(player, profile, key)
 	return newValue
+end
+
+-- Ставит уровень апгрейда (Mask/Tool/Cloak). Проверки цены — на вызывающем сервисе.
+function DataService.SetUpgradeLevel(player: Player, name: string, level: number)
+	local profile = profiles[player]
+	if not profile then
+		return
+	end
+	(profile.Data.Upgrades :: any)[name] = level
+	syncUpgrades(player, profile)
 end
 
 function DataService.Init()

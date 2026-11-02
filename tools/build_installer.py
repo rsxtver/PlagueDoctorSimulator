@@ -15,6 +15,11 @@ ROOT = Path(__file__).resolve().parent.parent
 PROJECT = ROOT / "default.project.json"
 OUTPUT = ROOT / "Install.luau"
 
+# Объекты из прошлых версий, которые установщик удаляет (путь от game).
+OBSOLETE = [
+    "ReplicatedStorage/Shared/Config",  # переименован в GameConfig (этап 3)
+]
+
 SERVICES = {
     "ReplicatedStorage", "ServerScriptService", "ServerStorage", "Workspace",
     "StarterGui", "StarterPlayer", "StarterPack", "Lighting", "SoundService",
@@ -115,7 +120,7 @@ local ChangeHistoryService = game:GetService("ChangeHistoryService")
 local ScriptEditorService = game:GetService("ScriptEditorService")
 
 local recording = ChangeHistoryService:TryBeginRecording("Install Plague Doctor Simulator")
-local created, updated = 0, 0
+local created, updated, removed = 0, 0, 0
 local N = {} -- созданные объекты (таблица, а не locals: у Luau лимит 200 локальных)
 
 local function ensure(parent: Instance, name: string, className: string, props: { [string]: any }?): Instance
@@ -139,6 +144,17 @@ local function ensure(parent: Instance, name: string, className: string, props: 
 	return instance
 end
 
+local function removeObsolete(path: string)
+	local instance: Instance? = game
+	for _, name in string.split(path, "/") do
+		instance = instance and instance:FindFirstChild(name)
+	end
+	if instance then
+		instance.Parent = nil -- через Parent, а не Destroy: так работает Ctrl+Z
+		removed += 1
+	end
+end
+
 local function setSource(script: Instance, source: string)
 	local luaScript = script :: LuaSourceContainer
 	if (luaScript :: any).Source == source then
@@ -160,7 +176,7 @@ FOOTER = """
 if recording then
 	ChangeHistoryService:FinishRecording(recording, Enum.FinishRecordingOperation.Commit)
 end
-print(`[Installer] Готово! Создано объектов: {created}, обновлено скриптов: {updated}`)
+print(`[Installer] Готово! Создано объектов: {created}, обновлено скриптов: {updated}, удалено устаревших: {removed}`)
 print("[Installer] Не забудьте: Game Settings -> Security -> Enable Studio Access to API Services")
 """
 
@@ -171,7 +187,9 @@ def main():
     for name, node in project["tree"].items():
         if not name.startswith("$"):
             emitter.emit_node("game", name, node)
-    OUTPUT.write_text(HEADER + "\n" + "\n".join(emitter.lines) + "\n" + FOOTER, encoding="utf-8")
+    cleanup = [f'removeObsolete("{path}")' for path in OBSOLETE]
+    body = "\n".join(emitter.lines + cleanup)
+    OUTPUT.write_text(HEADER + "\n" + body + "\n" + FOOTER, encoding="utf-8")
     print(f"Wrote {OUTPUT.relative_to(ROOT)}")
 
 
