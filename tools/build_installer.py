@@ -6,6 +6,8 @@ every folder, part and script of the game. Run after changing anything in src/:
 
     python3 tools/build_installer.py
 """
+from __future__ import annotations
+
 import json
 from pathlib import Path
 

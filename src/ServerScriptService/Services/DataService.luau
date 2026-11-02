@@ -3,6 +3,7 @@
 
 local DataStoreService = game:GetService("DataStoreService")
 local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
 
 local DataService = {}
 
@@ -46,6 +47,7 @@ local TEMPLATE: PlayerData = {
 -- Что показывать в таблице игроков: ключ в данных -> подпись
 local LEADERSTATS = {
 	{ Key = "Gold", Name = "Золото" },
+	{ Key = "LivesSaved", Name = "Спасено" },
 	{ Key = "Rebirths", Name = "Перерождения" },
 }
 
@@ -57,7 +59,26 @@ type Profile = {
 	Stats: { [string]: IntValue },
 }
 
-local store = DataStoreService:GetDataStore(DATASTORE_NAME)
+local IS_STUDIO = RunService:IsStudio()
+
+-- В неопубликованном месте или без «Enable Studio Access to API Services»
+-- DataStore недоступен. В Studio тогда играем без сохранений, на живом сервере — ошибка.
+local store: DataStore? = nil
+local memoryMode = false
+do
+	local ok, result = pcall(function()
+		return DataStoreService:GetDataStore(DATASTORE_NAME)
+	end)
+	if ok then
+		store = result
+	elseif IS_STUDIO then
+		memoryMode = true
+		warn(`[DataService] DataStore недоступен ({result}). Studio: игра без сохранений.`)
+	else
+		error(result)
+	end
+end
+
 local profiles: { [Player]: Profile } = {}
 local activeSaves = 0
 local initialized = false
@@ -88,16 +109,17 @@ local function reconcile(data: any, template: any)
 end
 
 -- Повторяет запрос к DataStore с паузами 1, 2, 4, 8 сек
-local function withRetries(label: string, callback: () -> any): (boolean, any)
+local function withRetries(label: string, callback: () -> any, maxRetries: number?): (boolean, any)
+	local attempts = maxRetries or MAX_RETRIES
 	local lastError
-	for attempt = 1, MAX_RETRIES do
+	for attempt = 1, attempts do
 		local ok, result = pcall(callback)
 		if ok then
 			return true, result
 		end
 		lastError = result
-		warn(`[DataService] {label}: попытка {attempt}/{MAX_RETRIES} не удалась — {result}`)
-		if attempt < MAX_RETRIES then
+		warn(`[DataService] {label}: попытка {attempt}/{attempts} не удалась — {result}`)
+		if attempt < attempts then
 			task.wait(2 ^ (attempt - 1))
 		end
 	end
@@ -108,11 +130,20 @@ end
 -- Загрузка / сохранение
 ----------------------------------------------------------------
 local function loadData(player: Player): PlayerData?
+	if memoryMode then
+		return deepCopy(TEMPLATE)
+	end
 	local key = KEY_PREFIX .. player.UserId
 	local ok, stored = withRetries(`Загрузка {player.Name}`, function()
-		return store:GetAsync(key)
-	end)
+		return (store :: DataStore):GetAsync(key)
+	end, if IS_STUDIO then 1 else nil)
 	if not ok then
+		if IS_STUDIO then
+			-- Скорее всего выключен доступ к API. Не сохраняем, чтобы не затереть прогресс.
+			memoryMode = true
+			warn("[DataService] Studio: загрузка не удалась, играем без сохранений. Включите Game Settings -> Security -> Enable Studio Access to API Services")
+			return deepCopy(TEMPLATE)
+		end
 		return nil
 	end
 
@@ -122,9 +153,12 @@ local function loadData(player: Player): PlayerData?
 end
 
 local function saveData(userId: number, name: string, data: PlayerData): boolean
+	if memoryMode then
+		return true
+	end
 	activeSaves += 1
 	local ok = withRetries(`Сохранение {name}`, function()
-		return store:UpdateAsync(KEY_PREFIX .. userId, function()
+		return (store :: DataStore):UpdateAsync(KEY_PREFIX .. userId, function()
 			return data, { userId } -- userId привязывается к ключу (для GDPR-запросов)
 		end)
 	end)
