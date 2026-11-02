@@ -75,9 +75,11 @@ N[5] = ensure(N[2], "Rebirth", "RemoteFunction")
 N[6] = ensure(N[2], "PetRequest", "RemoteFunction")
 N[7] = ensure(N[2], "EggHatched", "RemoteEvent")
 N[8] = ensure(N[2], "AuraRequest", "RemoteFunction")
-N[9] = ensure(N[1], "Shared", "Folder")
-N[10] = ensure(N[9], "AuraEffects", "ModuleScript")
-setSource(N[10], [[
+N[9] = ensure(N[2], "TreatFeedback", "RemoteEvent")
+N[10] = ensure(N[2], "SellFeedback", "RemoteEvent")
+N[11] = ensure(N[1], "Shared", "Folder")
+N[12] = ensure(N[11], "AuraEffects", "ModuleScript")
+setSource(N[12], [[
 -- ModuleScript: ReplicatedStorage -> Shared -> AuraEffects
 -- Внешний вид аур: Attachment в HumanoidRootPart + ParticleEmitter-ы + PointLight.
 -- Вызывает сервер (эффект реплицируется всем игрокам); клиент может звать Apply для превью.
@@ -238,8 +240,8 @@ end
 
 return AuraEffects
 ]])
-N[11] = ensure(N[9], "GameConfig", "ModuleScript")
-setSource(N[11], [[
+N[13] = ensure(N[11], "GameConfig", "ModuleScript")
+setSource(N[13], [[
 -- ModuleScript: ReplicatedStorage -> Shared -> GameConfig
 -- Все игровые числа в одном месте (читают и сервер, и клиент).
 
@@ -404,8 +406,8 @@ end
 
 return Config
 ]])
-N[12] = ensure(N[9], "Models", "ModuleScript")
-setSource(N[12], [[
+N[14] = ensure(N[11], "Models", "ModuleScript")
+setSource(N[14], [[
 -- ModuleScript: ReplicatedStorage -> Shared -> Models
 -- Выдаёт копии 3D-моделей (питомцы, яйцо) из папки ReplicatedStorage.Models.
 -- Модели сгенерированы в Studio (generate_procedural_model) и хранятся в репозитории
@@ -439,9 +441,9 @@ end
 return Models
 ]])
 if not N[1]:FindFirstChild("Models") then warn(`[Installer] Нет Models: ПКМ по {N[1]:GetFullName()} -> Insert from File -> assets/Models.rbxm`) end
-N[13] = game:GetService("ServerScriptService")
-N[14] = ensure(N[13], "MainServer", "Script")
-setSource(N[14], [[
+N[15] = game:GetService("ServerScriptService")
+N[16] = ensure(N[15], "MainServer", "Script")
+setSource(N[16], [[
 -- Script: ServerScriptService -> MainServer
 -- Точка входа сервера: запускает все сервисы по порядку.
 
@@ -455,6 +457,7 @@ local UpgradeService = require(Services:WaitForChild("UpgradeService"))
 local RebirthService = require(Services:WaitForChild("RebirthService"))
 local PetService = require(Services:WaitForChild("PetService"))
 local AuraService = require(Services:WaitForChild("AuraService"))
+local DoctorService = require(Services:WaitForChild("DoctorService"))
 
 DataService.Init()
 InfectedService.Init()
@@ -463,12 +466,13 @@ UpgradeService.Init()
 RebirthService.Init()
 PetService.Init()
 AuraService.Init()
+DoctorService.Init()
 
 print("[MainServer] Plague Doctor Simulator: сервер запущен")
 ]])
-N[15] = ensure(N[13], "Services", "Folder")
-N[16] = ensure(N[15], "AuraService", "ModuleScript")
-setSource(N[16], [[
+N[17] = ensure(N[15], "Services", "Folder")
+N[18] = ensure(N[17], "AuraService", "ModuleScript")
+setSource(N[18], [[
 -- ModuleScript: ServerScriptService -> Services -> AuraService
 -- Ауры: выдача (стартовая, за перерождения, из Ауро-склянки за Эликсиры), выбор одной,
 -- показ эффекта на персонаже. Всё решает сервер; клиент только просит надеть.
@@ -735,8 +739,8 @@ end
 
 return AuraService
 ]])
-N[17] = ensure(N[15], "DataService", "ModuleScript")
-setSource(N[17], [[
+N[19] = ensure(N[17], "DataService", "ModuleScript")
+setSource(N[19], [[
 -- ModuleScript: ServerScriptService -> Services -> DataService
 -- Загрузка, хранение в памяти и сохранение данных игроков (только сервер).
 
@@ -1090,13 +1094,108 @@ end
 
 return DataService
 ]])
-N[18] = ensure(N[15], "InfectedService", "ModuleScript")
-setSource(N[18], [[
+N[20] = ensure(N[17], "DoctorService", "ModuleScript")
+setSource(N[20], [[
+-- ModuleScript: ServerScriptService -> Services -> DoctorService
+-- Внешний вид доктора: ланцет в правой руке (его видят все игроки).
+-- Взмах при ударе рисует клиент (Effects), здесь только сам инструмент.
+
+local Players = game:GetService("Players")
+
+local DoctorService = {}
+
+local initialized = false
+
+local function makePart(name: string, size: Vector3, color: Color3, material: Enum.Material): Part
+	local part = Instance.new("Part")
+	part.Name = name
+	part.Size = size
+	part.Color = color
+	part.Material = material
+	part.CanCollide = false
+	part.CanQuery = false -- иначе ланцет перехватывал бы клики по больным
+	part.CanTouch = false
+	part.Massless = true
+	part.CastShadow = false
+	return part
+end
+
+local function weld(a: BasePart, b: BasePart, offset: CFrame)
+	b.CFrame = a.CFrame * offset
+	local w = Instance.new("WeldConstraint")
+	w.Part0 = a
+	w.Part1 = b
+	w.Parent = b
+end
+
+-- Ланцет: тёмная рукоять, серебряное лезвие, зелёная склянка у гарды
+local function buildLancet(hand: BasePart): Model
+	local model = Instance.new("Model")
+	model.Name = "Lancet"
+
+	local handle = makePart("Handle", Vector3.new(0.22, 1.4, 0.22), Color3.fromRGB(55, 35, 25), Enum.Material.Wood)
+	handle.CFrame = hand.CFrame * CFrame.new(0, -0.35, -0.55) * CFrame.Angles(math.rad(-90), 0, 0)
+	handle.Parent = model
+	local w = Instance.new("WeldConstraint")
+	w.Part0 = hand
+	w.Part1 = handle
+	w.Parent = handle
+
+	local guard = makePart("Guard", Vector3.new(0.5, 0.12, 0.5), Color3.fromRGB(150, 130, 90), Enum.Material.Metal)
+	weld(handle, guard, CFrame.new(0, 0.7, 0))
+	guard.Parent = model
+
+	local blade = makePart("Blade", Vector3.new(0.12, 1.3, 0.06), Color3.fromRGB(210, 215, 225), Enum.Material.Metal)
+	weld(handle, blade, CFrame.new(0, 1.4, 0))
+	blade.Parent = model
+
+	local vial = makePart("Vial", Vector3.new(0.3, 0.3, 0.3), Color3.fromRGB(110, 230, 80), Enum.Material.Neon)
+	vial.Shape = Enum.PartType.Ball
+	weld(handle, vial, CFrame.new(0.25, 0.55, 0))
+	vial.Parent = model
+
+	model.PrimaryPart = handle
+	return model
+end
+
+local function onCharacterAdded(character: Model)
+	local hand = character:WaitForChild("RightHand", 10) :: BasePart?
+	if not hand or character:FindFirstChild("Lancet") then
+		return
+	end
+	buildLancet(hand).Parent = character
+end
+
+function DoctorService.Init()
+	if initialized then
+		return
+	end
+	initialized = true
+
+	local function onPlayerAdded(player: Player)
+		player.CharacterAdded:Connect(onCharacterAdded)
+		if player.Character then
+			task.spawn(onCharacterAdded, player.Character)
+		end
+	end
+	Players.PlayerAdded:Connect(onPlayerAdded)
+	for _, player in Players:GetPlayers() do
+		onPlayerAdded(player)
+	end
+end
+
+return DoctorService
+]])
+N[21] = ensure(N[17], "InfectedService", "ModuleScript")
+setSource(N[21], [[
 -- ModuleScript: ServerScriptService -> Services -> InfectedService
--- Заражённые жители: появление в деревне, лечение кликом, сбор миазмов в маску.
+-- Заражённые жители: R15-риги со стандартными анимациями idle/walk. Бродят по зоне,
+-- кашляют, лечатся кликом (миазмы в маску), при выздоровлении светятся и убегают.
+-- Всё считает сервер; клиенту уходит только событие TreatFeedback для эффектов.
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
 
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("GameConfig"))
 local DataService = require(script.Parent:WaitForChild("DataService"))
@@ -1105,12 +1204,24 @@ local PetService = require(script.Parent:WaitForChild("PetService"))
 
 local InfectedService = {}
 
-local SKIN_SICK = Color3.fromRGB(140, 165, 95)
+local SKIN_SICK = Color3.fromRGB(140, 170, 95)
 local SKIN_HEALTHY = Color3.fromRGB(234, 190, 150)
-local CLOTH = Color3.fromRGB(105, 85, 65)
+local SHIRT = Color3.fromRGB(105, 85, 65)
+local PANTS = Color3.fromRGB(70, 60, 50)
 local FULL_WARN_INTERVAL = 2
 
+-- Стандартные анимации Roblox для R15 (принадлежат Roblox, работают в любой игре)
+local ANIM_IDLE = "rbxassetid://507766666"
+local ANIM_WALK = "rbxassetid://507777826"
+local ANIM_RUN = "rbxassetid://507767714"
+
+local WANDER_SPEED = 5
+local RUN_AWAY_SPEED = 22
+
+local treatFeedback = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("TreatFeedback") :: RemoteEvent
+
 local folder: Folder
+local template: Model? = nil
 local alive: { [Model]: boolean } = {}
 local lastHit: { [Player]: number } = {}
 local lastFullWarn: { [Player]: number } = {}
@@ -1118,21 +1229,40 @@ local initialized = false
 local random = Random.new()
 
 ----------------------------------------------------------------
--- Модель больного
+-- Шаблон рига (создаётся один раз, дальше клонируется)
 ----------------------------------------------------------------
-local function part(model: Model, name: string, size: Vector3, offset: Vector3, color: Color3): Part
-	local p = Instance.new("Part")
-	p.Name = name
-	p.Size = size
-	p.Anchored = true
-	p.Color = color
-	p.Material = Enum.Material.SmoothPlastic
-	p.TopSurface = Enum.SurfaceType.Smooth
-	p.BottomSurface = Enum.SurfaceType.Smooth
-	p.CFrame = CFrame.new(offset)
-	p:SetAttribute("Skin", color == SKIN_SICK)
-	p.Parent = model
-	return p
+local function buildTemplate(): Model
+	local description = Instance.new("HumanoidDescription")
+	description.HeadColor = SKIN_SICK
+	description.LeftArmColor = SKIN_SICK
+	description.RightArmColor = SKIN_SICK
+	description.TorsoColor = SHIRT
+	description.LeftLegColor = PANTS
+	description.RightLegColor = PANTS
+	local ok, rig = pcall(function()
+		return Players:CreateHumanoidModelFromDescription(description, Enum.HumanoidRigType.R15)
+	end)
+	if not ok then
+		error(`[InfectedService] Не удалось создать R15-риг: {rig}`)
+	end
+	rig.Name = "Infected"
+	local humanoid = rig:FindFirstChildOfClass("Humanoid") :: Humanoid
+	humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+	humanoid.HealthDisplayType = Enum.HumanoidHealthDisplayType.AlwaysOff
+	humanoid.WalkSpeed = WANDER_SPEED
+	humanoid.BreakJointsOnDeath = false
+	humanoid:SetStateEnabled(Enum.HumanoidStateType.Dead, false)
+	-- Стандартный скрипт Animate нам не нужен: анимации включаем сами
+	local animate = rig:FindFirstChild("Animate")
+	if animate then
+		animate:Destroy()
+	end
+	for _, part in rig:GetDescendants() do
+		if part:IsA("BasePart") then
+			part:SetAttribute("Skin", part.Color == SKIN_SICK)
+		end
+	end
+	return rig
 end
 
 local function setBar(model: Model)
@@ -1148,17 +1278,9 @@ local function setBar(model: Model)
 	end
 end
 
-local function buildInfected(): Model
-	local model = Instance.new("Model")
-	model.Name = "Infected"
-
-	local torso = part(model, "Torso", Vector3.new(2, 2, 1), Vector3.new(0, 3, 0), CLOTH)
-	local head = part(model, "Head", Vector3.new(1.2, 1.2, 1.2), Vector3.new(0, 4.6, 0), SKIN_SICK)
-	part(model, "LeftArm", Vector3.new(1, 2, 1), Vector3.new(-1.5, 3, 0), SKIN_SICK)
-	part(model, "RightArm", Vector3.new(1, 2, 1), Vector3.new(1.5, 3, 0), SKIN_SICK)
-	part(model, "LeftLeg", Vector3.new(1, 2, 1), Vector3.new(-0.5, 1, 0), CLOTH)
-	part(model, "RightLeg", Vector3.new(1, 2, 1), Vector3.new(0.5, 1, 0), CLOTH)
-	model.PrimaryPart = torso
+local function decorate(model: Model)
+	local head = model:FindFirstChild("Head") :: BasePart
+	local torso = model:FindFirstChild("UpperTorso") :: BasePart
 
 	-- Зелёные миазмы вокруг больного
 	local particles = Instance.new("ParticleEmitter")
@@ -1172,11 +1294,29 @@ local function buildInfected(): Model
 	particles.Rate = 4
 	particles.Parent = torso
 
+	-- Облачко кашля (выпускается порциями через Emit)
+	local mouth = Instance.new("Attachment")
+	mouth.Name = "Mouth"
+	mouth.Position = Vector3.new(0, -0.1, -0.7)
+	mouth.Parent = head
+	local cough = Instance.new("ParticleEmitter")
+	cough.Name = "Cough"
+	cough.Texture = "rbxasset://textures/particles/smoke_main.dds"
+	cough.Enabled = false
+	cough.Color = ColorSequence.new(Color3.fromRGB(130, 220, 70), Color3.fromRGB(80, 150, 40))
+	cough.Transparency = NumberSequence.new(0.3, 1)
+	cough.Size = NumberSequence.new(0.4, 1.8)
+	cough.Lifetime = NumberRange.new(0.8, 1.4)
+	cough.Speed = NumberRange.new(3, 5)
+	cough.SpreadAngle = Vector2.new(25, 25)
+	cough.EmissionDirection = Enum.NormalId.Front
+	cough.Parent = mouth
+
 	-- Полоска заражения над головой
 	local gui = Instance.new("BillboardGui")
 	gui.Name = "InfectionGui"
 	gui.Size = UDim2.fromOffset(120, 34)
-	gui.StudsOffset = Vector3.new(0, 2, 0)
+	gui.StudsOffset = Vector3.new(0, 2.2, 0)
 	gui.MaxDistance = 60
 	gui.AlwaysOnTop = true
 	gui.Parent = head
@@ -1211,11 +1351,102 @@ local function buildInfected(): Model
 	local click = Instance.new("ClickDetector")
 	click.MaxActivationDistance = Config.Tool.MaxDistance
 	click.Parent = model
+end
 
-	model:SetAttribute("Infection", Config.Infected.Infection)
-	model:SetAttribute("MaxInfection", Config.Infected.Infection)
-	setBar(model)
-	return model
+----------------------------------------------------------------
+-- Анимации и поведение
+----------------------------------------------------------------
+local function loadTrack(animator: Animator, id: string, priority: Enum.AnimationPriority): AnimationTrack
+	local animation = Instance.new("Animation")
+	animation.AnimationId = id
+	local track = animator:LoadAnimation(animation)
+	track.Priority = priority
+	track.Looped = true
+	return track
+end
+
+local function randomPointNear(position: Vector3): Vector3
+	local cfg = Config.Infected
+	local half = Vector3.new(cfg.SpawnSize.X / 2, 0, cfg.SpawnSize.Y / 2)
+	local target = position + Vector3.new(random:NextNumber(-12, 12), 0, random:NextNumber(-12, 12))
+	local min, max = cfg.SpawnCenter - half, cfg.SpawnCenter + half
+	return Vector3.new(math.clamp(target.X, min.X, max.X), position.Y, math.clamp(target.Z, min.Z, max.Z))
+end
+
+-- Сустав рига: у Motor6D двигаем C0, у новых AnimationConstraint — CFrame их Attachment0.
+-- Возвращает (объект, имя свойства) или nil.
+local function jointHandle(model: Instance, name: string): (Instance?, string?)
+	local joint = model:FindFirstChild(name, true)
+	if joint and joint:IsA("Motor6D") then
+		return joint, "C0"
+	elseif joint and joint:IsA("AnimationConstraint") and joint.Attachment0 then
+		return joint.Attachment0, "CFrame"
+	end
+	return nil, nil
+end
+
+-- Кашель: наклон вперёд в поясе и зелёное облачко
+local function cough(model: Model)
+	local waist, prop = jointHandle(model, "Waist")
+	local emitter = model:FindFirstChild("Cough", true) :: ParticleEmitter?
+	local humanoid = model:FindFirstChildOfClass("Humanoid")
+	if not waist or not prop or not emitter or not humanoid then
+		return
+	end
+	local base = waist:GetAttribute("BasePose") :: CFrame? or (waist :: any)[prop]
+	waist:SetAttribute("BasePose", base)
+	humanoid:MoveTo((model.PrimaryPart :: BasePart).Position) -- остановиться
+	local bend = TweenService:Create(waist, TweenInfo.new(0.25, Enum.EasingStyle.Quad), { [prop] = base * CFrame.Angles(math.rad(-30), 0, 0) })
+	bend:Play()
+	bend.Completed:Wait()
+	if alive[model] then
+		emitter:Emit(14)
+	end
+	task.wait(0.35)
+	TweenService:Create(waist, TweenInfo.new(0.4, Enum.EasingStyle.Quad), { [prop] = base }):Play()
+end
+
+local function runBehaviour(model: Model)
+	local humanoid = model:FindFirstChildOfClass("Humanoid") :: Humanoid
+	local animator = humanoid:FindFirstChildOfClass("Animator")
+	if not animator then
+		animator = Instance.new("Animator")
+		animator.Parent = humanoid
+	end
+	local idle = loadTrack(animator, ANIM_IDLE, Enum.AnimationPriority.Idle)
+	local walk = loadTrack(animator, ANIM_WALK, Enum.AnimationPriority.Movement)
+	idle:Play()
+
+	humanoid.Running:Connect(function(speed)
+		if not alive[model] then
+			-- Выздоровевший бежит со своей анимацией бега
+			if walk.IsPlaying then
+				walk:Stop(0.1)
+			end
+			return
+		end
+		if speed > 0.5 then
+			if not walk.IsPlaying then
+				walk:Play(0.2)
+			end
+			walk:AdjustSpeed(speed / 12)
+		elseif walk.IsPlaying then
+			walk:Stop(0.2)
+		end
+	end)
+
+	task.spawn(function()
+		task.wait(random:NextNumber(0, 3))
+		while alive[model] and model.Parent do
+			if random:NextNumber() < 0.3 then
+				cough(model)
+				task.wait(random:NextNumber(1, 2))
+			else
+				humanoid:MoveTo(randomPointNear((model.PrimaryPart :: BasePart).Position))
+				task.wait(random:NextNumber(3, 6))
+			end
+		end
+	end)
 end
 
 ----------------------------------------------------------------
@@ -1226,11 +1457,7 @@ local function pickSpawnPosition(): Vector3
 	local best = cfg.SpawnCenter
 	for _ = 1, 15 do
 		local candidate = cfg.SpawnCenter
-			+ Vector3.new(
-				random:NextNumber(-0.5, 0.5) * cfg.SpawnSize.X,
-				0,
-				random:NextNumber(-0.5, 0.5) * cfg.SpawnSize.Y
-			)
+			+ Vector3.new(random:NextNumber(-0.5, 0.5) * cfg.SpawnSize.X, 0, random:NextNumber(-0.5, 0.5) * cfg.SpawnSize.Y)
 		local free = true
 		for other in alive do
 			local pos = other:GetPivot().Position
@@ -1249,38 +1476,94 @@ end
 
 local spawnInfected -- объявлено заранее: cure() вызывает его через таймер
 
-local function onClicked(player: Player, model: Model)
-	InfectedService.Treat(player, model)
-end
-
 function spawnInfected()
-	local model = buildInfected()
+	if not template then
+		return nil
+	end
+	local model = template:Clone()
+	decorate(model)
+	model:SetAttribute("Infection", Config.Infected.Infection)
+	model:SetAttribute("MaxInfection", Config.Infected.Infection)
+	setBar(model)
+
+	local humanoid = model:FindFirstChildOfClass("Humanoid") :: Humanoid
+	local rootHeight = humanoid.HipHeight + (model.PrimaryPart :: BasePart).Size.Y / 2
 	local yaw = random:NextNumber(0, math.pi * 2)
-	-- Пивот модели — центр торса, поднимаем его так, чтобы ноги стояли на земле
-	local height = model:GetPivot().Position.Y
-	model:PivotTo(CFrame.new(pickSpawnPosition() + Vector3.new(0, height, 0)) * CFrame.Angles(0, yaw, 0))
+	model:PivotTo(CFrame.new(pickSpawnPosition() + Vector3.new(0, rootHeight, 0)) * CFrame.Angles(0, yaw, 0))
+
 	alive[model] = true;
 	(model:FindFirstChildOfClass("ClickDetector") :: ClickDetector).MouseClick:Connect(function(player)
-		onClicked(player, model)
+		InfectedService.Treat(player, model)
 	end)
 	model.Parent = folder
+	pcall(function()
+		(model.PrimaryPart :: BasePart):SetNetworkOwner(nil) -- физику NPC считает сервер
+	end)
+	runBehaviour(model)
 	return model
 end
 
-local function cure(model: Model)
+-- Выздоровление: выпрямиться, засветиться, радостно убежать
+local function cure(model: Model, player: Player)
 	alive[model] = nil
 	local click = model:FindFirstChildOfClass("ClickDetector")
 	if click then
 		click:Destroy()
 	end
 	for _, d in model:GetDescendants() do
-		if d:IsA("ParticleEmitter") or d:IsA("BillboardGui") then
+		if d:IsA("BillboardGui") or (d:IsA("ParticleEmitter") and d.Name == "Miasma") then
 			d:Destroy()
 		elseif d:IsA("BasePart") and d:GetAttribute("Skin") then
 			d.Color = SKIN_HEALTHY
 		end
 	end
-	task.delay(1.5, function()
+	-- Выпрямляется
+	local waist, prop = jointHandle(model, "Waist")
+	if waist and prop and waist:GetAttribute("BasePose") then
+		TweenService:Create(waist, TweenInfo.new(0.2), { [prop] = waist:GetAttribute("BasePose") }):Play()
+	end
+
+	local highlight = Instance.new("Highlight")
+	highlight.FillColor = Color3.fromRGB(255, 240, 170)
+	highlight.FillTransparency = 0.55
+	highlight.OutlineColor = Color3.fromRGB(255, 255, 220)
+	highlight.Parent = model
+	local light = Instance.new("PointLight")
+	light.Color = Color3.fromRGB(255, 240, 180)
+	light.Brightness = 2
+	light.Range = 10
+	light.Parent = model.PrimaryPart
+
+	local humanoid = model:FindFirstChildOfClass("Humanoid") :: Humanoid
+	local animator = humanoid:FindFirstChildOfClass("Animator") :: Animator
+	for _, track in animator:GetPlayingAnimationTracks() do
+		track:Stop(0.1)
+	end
+	humanoid.Jump = true
+	task.delay(0.5, function()
+		if not model.Parent then
+			return
+		end
+		loadTrack(animator, ANIM_RUN, Enum.AnimationPriority.Movement):Play(0.1)
+		humanoid.WalkSpeed = RUN_AWAY_SPEED
+		-- Убегает прочь от доктора
+		local from = model:GetPivot().Position
+		local character = player.Character
+		local doctor = character and character:FindFirstChild("HumanoidRootPart") :: BasePart?
+		local away = if doctor then (from - doctor.Position) * Vector3.new(1, 0, 1) else Vector3.new(0, 0, -1)
+		if away.Magnitude < 0.1 then
+			away = Vector3.new(0, 0, -1)
+		end
+		humanoid:MoveTo(from + away.Unit * 45)
+	end)
+	task.delay(3, function()
+		for _, part in model:GetDescendants() do
+			if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+				TweenService:Create(part, TweenInfo.new(0.6), { Transparency = 1 }):Play()
+			end
+		end
+		TweenService:Create(highlight, TweenInfo.new(0.6), { FillTransparency = 1, OutlineTransparency = 1 }):Play()
+		task.wait(0.7)
 		model:Destroy()
 	end)
 	task.delay(Config.Infected.RespawnDelay, function()
@@ -1334,14 +1617,17 @@ function InfectedService.Treat(player: Player, model: Model): number
 
 	-- Миазмы удара с множителем питомцев (бонус за исцеление — без множителя)
 	local gained = math.min(PetService.ApplyMultiplier(player, damage), space)
-	if infection <= 0 then
+	local cured = infection <= 0
+	if cured then
 		local bonus = math.min(Config.Infected.CureBonus, space - gained)
 		gained += bonus
 		DataService.Increment(player, "LivesSaved", 1)
 		notify(player, `Исцелён! +{bonus} миазмов в награду`, "good")
-		cure(model)
+		cure(model, player)
 	end
 	DataService.Increment(player, "Miasma", gained)
+	-- Только визуал: взмах, «+N миазмов», частицы лечения
+	treatFeedback:FireClient(player, model, gained, cured)
 	return gained
 end
 
@@ -1368,15 +1654,19 @@ function InfectedService.Init()
 		lastFullWarn[player] = nil
 	end)
 
-	for _ = 1, Config.Infected.MaxCount do
-		spawnInfected()
-	end
+	-- Создание рига ждёт загрузку ассетов — не задерживаем запуск остальных сервисов
+	task.spawn(function()
+		template = buildTemplate()
+		for _ = 1, Config.Infected.MaxCount do
+			spawnInfected()
+		end
+	end)
 end
 
 return InfectedService
 ]])
-N[19] = ensure(N[15], "Notify", "ModuleScript")
-setSource(N[19], [[
+N[22] = ensure(N[17], "Notify", "ModuleScript")
+setSource(N[22], [[
 -- ModuleScript: ServerScriptService -> Services -> Notify
 -- Всплывающие сообщения игроку (показывает HUD на клиенте).
 
@@ -1389,8 +1679,8 @@ return function(player: Player, text: string, kind: string?)
 	remote:FireClient(player, text, kind or "info")
 end
 ]])
-N[20] = ensure(N[15], "PetService", "ModuleScript")
-setSource(N[20], [=[
+N[23] = ensure(N[17], "PetService", "ModuleScript")
+setSource(N[23], [=[
 -- ModuleScript: ServerScriptService -> Services -> PetService
 -- Питомцы: вылупление из яйца «Чумная склянка», инвентарь, надеть/снять, множитель миазмов.
 -- Всё решает сервер. Клиент получает только список питомцев и рисует их полёт.
@@ -1693,8 +1983,8 @@ end
 
 return PetService
 ]=])
-N[21] = ensure(N[15], "PharmacyService", "ModuleScript")
-setSource(N[21], [[
+N[24] = ensure(N[17], "PharmacyService", "ModuleScript")
+setSource(N[24], [[
 -- ModuleScript: ServerScriptService -> Services -> PharmacyService
 -- Аптека: встал на зелёную площадку — миазмы из маски обменялись на золото.
 
@@ -1704,6 +1994,8 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("GameConfig"))
 local DataService = require(script.Parent:WaitForChild("DataService"))
 local notify = require(script.Parent:WaitForChild("Notify"))
+
+local sellFeedback = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("SellFeedback") :: RemoteEvent
 
 local PharmacyService = {}
 
@@ -1734,6 +2026,7 @@ function PharmacyService.Sell(player: Player): number
 	local bonus = if multiplier > 1 then ` (x{multiplier})` else ""
 	local elixirText = if elixirs > 0 then `, +{elixirs} эликсир.` else ""
 	notify(player, `Аптека: +{gold} золота{bonus}{elixirText}`, "good")
+	sellFeedback:FireClient(player, gold) -- только визуал: монеты
 	return gold
 end
 
@@ -1793,8 +2086,8 @@ end
 
 return PharmacyService
 ]])
-N[22] = ensure(N[15], "RebirthService", "ModuleScript")
-setSource(N[22], [[
+N[25] = ensure(N[17], "RebirthService", "ModuleScript")
+setSource(N[25], [[
 -- ModuleScript: ServerScriptService -> Services -> RebirthService
 -- Перерождение «Новая эпидемия»: сброс золота, миазмов и апгрейдов
 -- в обмен на Чумной череп и постоянный множитель золота.
@@ -1865,8 +2158,8 @@ end
 
 return RebirthService
 ]])
-N[23] = ensure(N[15], "UpgradeService", "ModuleScript")
-setSource(N[23], [[
+N[26] = ensure(N[17], "UpgradeService", "ModuleScript")
+setSource(N[26], [[
 -- ModuleScript: ServerScriptService -> Services -> UpgradeService
 -- Покупка апгрейдов (Маска, Ланцет, Плащ) за золото и применение их эффектов.
 -- Клиент только просит купить по имени — цену, золото и уровень проверяет сервер.
@@ -1983,10 +2276,10 @@ end
 
 return UpgradeService
 ]])
-N[24] = game:GetService("StarterPlayer")
-N[25] = ensure(N[24], "StarterPlayerScripts", "StarterPlayerScripts")
-N[26] = ensure(N[25], "HUD", "LocalScript")
-setSource(N[26], [[
+N[27] = game:GetService("StarterPlayer")
+N[28] = ensure(N[27], "StarterPlayerScripts", "StarterPlayerScripts")
+N[29] = ensure(N[28], "HUD", "LocalScript")
+setSource(N[29], [[
 -- LocalScript: StarterPlayer -> StarterPlayerScripts -> HUD
 -- Интерфейс: шкала миазмов в маске, золото, всплывающие сообщения.
 -- Данные берутся из атрибутов игрока, которые выставляет сервер.
@@ -2147,8 +2440,8 @@ notifyRemote.OnClientEvent:Connect(function(text: string, kind: string)
 	end)
 end)
 ]])
-N[27] = ensure(N[25], "Shop", "LocalScript")
-setSource(N[27], [[
+N[30] = ensure(N[28], "Shop", "LocalScript")
+setSource(N[30], [[
 -- LocalScript: StarterPlayer -> StarterPlayerScripts -> Shop
 -- Окно апгрейдов: кнопка «Улучшения» и карточки Маски, Ланцета и Плаща.
 -- Клиент только показывает цены и отправляет запрос — покупку проверяет сервер.
@@ -2386,8 +2679,8 @@ UserInputService.InputBegan:Connect(function(input, processed)
 	end
 end)
 ]])
-N[28] = ensure(N[25], "Rebirth", "LocalScript")
-setSource(N[28], [[
+N[31] = ensure(N[28], "Rebirth", "LocalScript")
+setSource(N[31], [[
 -- LocalScript: StarterPlayer -> StarterPlayerScripts -> Rebirth
 -- Окно «Новая эпидемия»: что сбросится, что получишь, подтверждение.
 -- Проверку цены и сам сброс делает сервер.
@@ -2557,8 +2850,8 @@ closeButton.Activated:Connect(function()
 	window.Visible = false
 end)
 ]])
-N[29] = ensure(N[25], "Pets", "LocalScript")
-setSource(N[29], [[
+N[32] = ensure(N[28], "Pets", "LocalScript")
+setSource(N[32], [[
 -- LocalScript: StarterPlayer -> StarterPlayerScripts -> Pets
 -- Полёт питомцев за игроками. Только визуал: какие питомцы надеты, решает сервер
 -- (атрибут игрока EquippedPetKinds), а позицию и покачивание считает клиент.
@@ -2666,8 +2959,8 @@ RunService.RenderStepped:Connect(function(dt)
 	end
 end)
 ]])
-N[30] = ensure(N[25], "PetsUI", "LocalScript")
-setSource(N[30], [[
+N[33] = ensure(N[28], "PetsUI", "LocalScript")
+setSource(N[33], [[
 -- LocalScript: StarterPlayer -> StarterPlayerScripts -> PetsUI
 -- Инвентарь питомцев (Надеть/Снять) и анимация вылупления из яйца.
 -- Клиент только показывает состояние, которое прислал сервер, и отправляет просьбы.
@@ -3060,8 +3353,8 @@ eggHatched.OnClientEvent:Connect(function(kind: string, _id: string, newState: P
 	hatching = false
 end)
 ]])
-N[31] = ensure(N[25], "Auras", "LocalScript")
-setSource(N[31], [[
+N[34] = ensure(N[28], "Auras", "LocalScript")
+setSource(N[34], [[
 -- LocalScript: StarterPlayer -> StarterPlayerScripts -> Auras
 -- Окно выбора ауры. Список открытых аур и надетую присылает сервер, клиент только просит надеть.
 
@@ -3302,14 +3595,194 @@ player:GetAttributeChangedSignal("Aura"):Connect(function()
 	end
 end)
 ]])
-N[32] = game:GetService("ServerStorage")
-N[33] = ensure(N[32], "NPCTemplates", "Folder")
-N[34] = game:GetService("Workspace")
-N[35] = ensure(N[34], "Zones", "Folder")
-N[36] = ensure(N[35], "Village", "Folder")
-N[37] = ensure(N[36], "Infected", "Folder")
-N[38] = ensure(N[36], "Pharmacy", "Folder")
-N[39] = ensure(N[38], "SellPart", "Part", { Anchored = true, CanCollide = false, Transparency = 0.5, Size = Vector3.new(12, 1, 12), Position = Vector3.new(0, 0.5, 30), Color = Color3.new(0.25, 0.85, 0.35), Material = Enum.Material.Neon })
+N[35] = ensure(N[28], "Effects", "LocalScript")
+setSource(N[35], [[
+-- LocalScript: StarterPlayer -> StarterPlayerScripts -> Effects
+-- Только визуал по событиям сервера:
+--   TreatFeedback(model, gained, cured) — взмах ланцетом, «+N миазмов», частицы лечения
+--   SellFeedback(gold)                  — монеты в Аптеке
+
+local Debris = game:GetService("Debris")
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
+
+local Remotes = ReplicatedStorage:WaitForChild("Remotes")
+local treatFeedback = Remotes:WaitForChild("TreatFeedback") :: RemoteEvent
+local sellFeedback = Remotes:WaitForChild("SellFeedback") :: RemoteEvent
+
+local player = Players.LocalPlayer
+local random = Random.new()
+
+----------------------------------------------------------------
+-- Взмах ланцетом: поворот плеча кодом (анимации Animate эту «надстройку» не сбрасывают)
+----------------------------------------------------------------
+-- Сустав рига: у Motor6D двигаем C0, у новых AnimationConstraint — CFrame их Attachment0.
+-- Возвращает (объект, имя свойства) или nil.
+local function jointHandle(model: Instance, name: string): (Instance?, string?)
+	local joint = model:FindFirstChild(name, true)
+	if joint and joint:IsA("Motor6D") then
+		return joint, "C0"
+	elseif joint and joint:IsA("AnimationConstraint") and joint.Attachment0 then
+		return joint.Attachment0, "CFrame"
+	end
+	return nil, nil
+end
+
+local swinging = false
+local function swing()
+	local character = player.Character
+	local shoulder, prop = jointHandle(character or workspace, "RightShoulder")
+	if not character or not shoulder or not prop or swinging then
+		return
+	end
+	swinging = true
+	local base = shoulder:GetAttribute("BasePose") :: CFrame? or (shoulder :: any)[prop]
+	shoulder:SetAttribute("BasePose", base)
+	local up = TweenService:Create(shoulder, TweenInfo.new(0.08, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+		[prop] = base * CFrame.Angles(math.rad(120), 0, math.rad(-15)),
+	})
+	local down = TweenService:Create(shoulder, TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+		[prop] = base * CFrame.Angles(math.rad(-25), 0, math.rad(10)),
+	})
+	local back = TweenService:Create(shoulder, TweenInfo.new(0.15), { [prop] = base })
+	up:Play()
+	up.Completed:Wait()
+	down:Play()
+	down.Completed:Wait()
+	back:Play()
+	back.Completed:Wait()
+	swinging = false
+end
+
+----------------------------------------------------------------
+-- «+N миазмов» над головой
+----------------------------------------------------------------
+local function popup(text: string, color: Color3)
+	local character = player.Character
+	local head = character and character:FindFirstChild("Head") :: BasePart?
+	if not head then
+		return
+	end
+	local gui = Instance.new("BillboardGui")
+	gui.Name = "Popup"
+	gui.Size = UDim2.fromOffset(160, 36)
+	gui.StudsOffset = Vector3.new(random:NextNumber(-0.8, 0.8), 2.2, 0)
+	gui.Adornee = head
+	gui.Parent = head
+	local label = Instance.new("TextLabel")
+	label.Size = UDim2.fromScale(1, 1)
+	label.BackgroundTransparency = 1
+	label.Font = Enum.Font.GothamBlack
+	label.TextScaled = true
+	label.TextColor3 = color
+	label.TextStrokeTransparency = 0.2
+	label.Text = text
+	label.Parent = gui
+	TweenService:Create(gui, TweenInfo.new(1, Enum.EasingStyle.Quad), { StudsOffset = gui.StudsOffset + Vector3.new(0, 2.5, 0) }):Play()
+	TweenService:Create(label, TweenInfo.new(1, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+		TextTransparency = 1,
+		TextStrokeTransparency = 1,
+	}):Play()
+	Debris:AddItem(gui, 1.1)
+end
+
+----------------------------------------------------------------
+-- Частицы лечения на больном
+----------------------------------------------------------------
+local function healBurst(model: Model, cured: boolean)
+	local torso = model:FindFirstChild("UpperTorso") or model.PrimaryPart
+	if not torso or not torso:IsA("BasePart") then
+		return
+	end
+	local attachment = Instance.new("Attachment")
+	attachment.Parent = torso
+	local emitter = Instance.new("ParticleEmitter")
+	emitter.Enabled = false
+	emitter.LightEmission = 0.8
+	emitter.Lifetime = NumberRange.new(0.5, 0.9)
+	emitter.Speed = NumberRange.new(4, 8)
+	emitter.SpreadAngle = Vector2.new(180, 180)
+	emitter.Size = NumberSequence.new(0.5, 0)
+	emitter.Transparency = NumberSequence.new(0, 1)
+	emitter.Color = if cured
+		then ColorSequence.new(Color3.fromRGB(255, 240, 150), Color3.fromRGB(255, 255, 255))
+		else ColorSequence.new(Color3.fromRGB(150, 255, 140), Color3.fromRGB(230, 255, 230))
+	emitter.Parent = attachment
+	emitter:Emit(if cured then 40 else 14)
+	Debris:AddItem(attachment, 1.5)
+end
+
+treatFeedback.OnClientEvent:Connect(function(model: Model, gained: number, cured: boolean)
+	task.spawn(swing)
+	if gained > 0 then
+		popup(`+{gained} миазмов`, Color3.fromRGB(150, 240, 100))
+	end
+	if typeof(model) == "Instance" and model.Parent then
+		healBurst(model, cured)
+	end
+end)
+
+----------------------------------------------------------------
+-- Монеты в Аптеке
+----------------------------------------------------------------
+local function coin(): Part
+	local c = Instance.new("Part")
+	c.Name = "Coin"
+	c.Shape = Enum.PartType.Cylinder
+	c.Size = Vector3.new(0.15, 0.9, 0.9)
+	c.Color = Color3.fromRGB(255, 200, 50)
+	c.Material = Enum.Material.Neon
+	c.Anchored = true
+	c.CanCollide = false
+	c.CanQuery = false
+	c.CanTouch = false
+	c.CastShadow = false
+	return c
+end
+
+sellFeedback.OnClientEvent:Connect(function(gold: number)
+	local pharmacy = workspace:FindFirstChild("Zones") and workspace.Zones:FindFirstChild("Village")
+	local sellPart = pharmacy and pharmacy:FindFirstChild("Pharmacy") and pharmacy.Pharmacy:FindFirstChild("SellPart") :: BasePart?
+	local character = player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart") :: BasePart?
+	if not sellPart or not root then
+		return
+	end
+	popup(`+{gold} золота`, Color3.fromRGB(255, 210, 80))
+	local count = math.clamp(math.floor(gold / 5) + 4, 4, 18)
+	for i = 1, count do
+		task.delay(i * 0.04, function()
+			local c = coin()
+			local start = sellPart.Position + Vector3.new(random:NextNumber(-4, 4), 1, random:NextNumber(-4, 4))
+			c.CFrame = CFrame.new(start) * CFrame.Angles(0, 0, math.rad(90))
+			c.Parent = workspace
+			local peak = start + Vector3.new(random:NextNumber(-2, 2), random:NextNumber(4, 7), random:NextNumber(-2, 2))
+			local up = TweenService:Create(c, TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+				CFrame = CFrame.new(peak) * CFrame.Angles(random:NextNumber(0, 6), random:NextNumber(0, 6), 0),
+			})
+			up:Play()
+			up.Completed:Wait()
+			local target = if root.Parent then root.Position else peak
+			local fly = TweenService:Create(c, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+				CFrame = CFrame.new(target),
+				Size = Vector3.new(0.05, 0.3, 0.3),
+			})
+			fly:Play()
+			fly.Completed:Wait()
+			c:Destroy()
+		end)
+	end
+end)
+]])
+N[36] = game:GetService("ServerStorage")
+N[37] = ensure(N[36], "NPCTemplates", "Folder")
+N[38] = game:GetService("Workspace")
+N[39] = ensure(N[38], "Zones", "Folder")
+N[40] = ensure(N[39], "Village", "Folder")
+N[41] = ensure(N[40], "Infected", "Folder")
+N[42] = ensure(N[40], "Pharmacy", "Folder")
+N[43] = ensure(N[42], "SellPart", "Part", { Anchored = true, CanCollide = false, Transparency = 0.5, Size = Vector3.new(12, 1, 12), Position = Vector3.new(0, 0.5, 30), Color = Color3.new(0.25, 0.85, 0.35), Material = Enum.Material.Neon })
 removeObsolete("ReplicatedStorage/Shared/Config")
 removeObsolete("ServerStorage/PetModels")
 

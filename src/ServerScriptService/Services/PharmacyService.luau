@@ -8,6 +8,8 @@ local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Ga
 local DataService = require(script.Parent:WaitForChild("DataService"))
 local notify = require(script.Parent:WaitForChild("Notify"))
 
+local sellFeedback = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("SellFeedback") :: RemoteEvent
+
 local PharmacyService = {}
 
 local SELL_COOLDOWN = 1
@@ -37,6 +39,7 @@ function PharmacyService.Sell(player: Player): number
 	local bonus = if multiplier > 1 then ` (x{multiplier})` else ""
 	local elixirText = if elixirs > 0 then `, +{elixirs} эликсир.` else ""
 	notify(player, `Аптека: +{gold} золота{bonus}{elixirText}`, "good")
+	sellFeedback:FireClient(player, gold) -- только визуал: монеты
 	return gold
 end
 

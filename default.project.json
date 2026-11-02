@@ -12,7 +12,9 @@
         "Rebirth": { "$className": "RemoteFunction" },
         "PetRequest": { "$className": "RemoteFunction" },
         "EggHatched": { "$className": "RemoteEvent" },
-        "AuraRequest": { "$className": "RemoteFunction" }
+        "AuraRequest": { "$className": "RemoteFunction" },
+        "TreatFeedback": { "$className": "RemoteEvent" },
+        "SellFeedback": { "$className": "RemoteEvent" }
       },
       "Shared": { "$path": "src/ReplicatedStorage/Shared" },
       "Models": { "$path": "assets/Models.rbxm" }
@@ -33,7 +35,8 @@
         "Rebirth": { "$path": "src/StarterPlayer/StarterPlayerScripts/Rebirth.client.luau" },
         "Pets": { "$path": "src/StarterPlayer/StarterPlayerScripts/Pets.client.luau" },
         "PetsUI": { "$path": "src/StarterPlayer/StarterPlayerScripts/PetsUI.client.luau" },
-        "Auras": { "$path": "src/StarterPlayer/StarterPlayerScripts/Auras.client.luau" }
+        "Auras": { "$path": "src/StarterPlayer/StarterPlayerScripts/Auras.client.luau" },
+        "Effects": { "$path": "src/StarterPlayer/StarterPlayerScripts/Effects.client.luau" }
       }
     },
 
