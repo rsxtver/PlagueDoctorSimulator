@@ -1,0 +1,50 @@
+{
+  "name": "PlagueDoctorSimulator",
+  "tree": {
+    "$className": "DataModel",
+
+    "ReplicatedStorage": {
+      "$className": "ReplicatedStorage",
+      "Remotes": { "$className": "Folder" },
+      "Shared": { "$className": "Folder" }
+    },
+
+    "ServerScriptService": {
+      "$className": "ServerScriptService",
+      "MainServer": { "$path": "src/ServerScriptService/MainServer.server.luau" },
+      "Services": { "$path": "src/ServerScriptService/Services" }
+    },
+
+    "ServerStorage": {
+      "$className": "ServerStorage",
+      "NPCTemplates": { "$className": "Folder" },
+      "PetModels": { "$className": "Folder" }
+    },
+
+    "Workspace": {
+      "$className": "Workspace",
+      "Zones": {
+        "$className": "Folder",
+        "Village": {
+          "$className": "Folder",
+          "Infected": { "$className": "Folder" },
+          "Pharmacy": {
+            "$className": "Folder",
+            "SellPart": {
+              "$className": "Part",
+              "$properties": {
+                "Anchored": true,
+                "CanCollide": false,
+                "Transparency": 0.5,
+                "Size": [12, 1, 12],
+                "Position": [0, 0.5, 30],
+                "Color": [0.25, 0.85, 0.35],
+                "Material": "Neon"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
