@@ -18,8 +18,10 @@ Studio подключён через MCP-сервер `Roblox_Studio` (`.mcp.jso
 
 1. Пиши код в `src/` (это источник правды, структура — в `default.project.json`).
 2. Перегенерируй установщик: `python3 tools/build_installer.py`.
-3. Примени в Studio: прочитай `Install.luau` и выполни через `execute_luau` (datamodel_type `Edit`) —
-   он идемпотентен; либо точечно через `multi_edit`.
+3. Примени в Studio: запусти мост `python3 tools/studio_bridge.py . <dump-dir>` (фоном) и выполни
+   `tools/studio_sync.luau` через `execute_luau` (Edit) — Studio сам скачает и выполнит `Install.luau`
+   (идемпотентен, «обновлено 0» = Studio совпадает с репозиторием). POST на `/dump/<name>` сохраняет
+   файл в dump-dir — так выгружаются модели (`SerializationService` → `assets/Models.rbxm`).
 4. Проверь: `start_stop_play` → `get_console_output` (ищи ошибки/warn) → останови плейтест.
    Для сложных сценариев — `subagent` типа `playtest`, `screen_capture`.
 5. Коммить и пушь в `main` (git), кратко отчитайся пользователю.
@@ -37,6 +39,9 @@ GUI: не ставь кнопки в правый верхний угол экр
   клиент читает их для UI (`player:GetAttribute("Miasma")`).
 - `ReplicatedStorage/Remotes` — RemoteEvent/RemoteFunction (создавать через проект/установщик).
 - `ReplicatedStorage/Shared/GameConfig` — баланс (цены, апгрейды, питомцы).
+- `ReplicatedStorage/Models` — 3D-модели (питомцы, яйцо), в git как `assets/Models.rbxm`;
+  `Shared/Models.Build(name)` даёт копию. Модели из generate_procedural_model содержат Union-ы,
+  поэтому хранятся бинарно, а не кодом.
 - Переименовал/удалил объект — добавь старый путь в `OBSOLETE` в `tools/build_installer.py`,
   установщик уберёт его у тех, кто ставил прошлую версию.
 - `Workspace/Zones/<Zone>/Infected` — заражённые NPC; `Pharmacy/SellPart` — зона продажи.
@@ -61,7 +66,7 @@ Rebirth «Новая эпидемия» (сброс, множитель, Чум�
 3. ✅ Аптека: продажа миазмов за золото.
 4. ✅ 3 апгрейда (Маска, Инструмент, Плащ) + GUI.
 5. ✅ Rebirth.
-6. Питомцы (этап A): яйцо «Чумная склянка» (100 золота, в Деревне) → Ворон 50% x1.1, Крыса-фамильяр 30% x1.2,
+6. ✅ Питомцы (этап A): яйцо «Чумная склянка» (100 золота, в Деревне) → Ворон 50% x1.1, Крыса-фамильяр 30% x1.2,
    Летучая мышь 13% x1.5, Призрак 6% x2, Чёрный кот 1% x3. Надето до 3, инвентарь до 50, множители миазмов
    перемножаются с rebirth. Модели — generate_procedural_model/generate_mesh. Позиция питомцев — на клиенте,
    владение и множитель — на сервере. Анимация вылупления, GUI инвентаря «Надеть/Снять».

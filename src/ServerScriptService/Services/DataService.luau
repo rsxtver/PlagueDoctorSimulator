@@ -286,6 +286,21 @@ function DataService.Increment(player: Player, key: string, delta: number): numb
 	return newValue
 end
 
+-- Меняет данные игрока функцией callback(data) и синхронизирует атрибуты.
+-- Для вложенных полей (Pets, EquippedPets, Auras...). Возвращает всё, что вернул callback.
+function DataService.Update(player: Player, callback: (PlayerData) -> ...any): ...any
+	local profile = profiles[player]
+	if not profile then
+		return nil
+	end
+	local results = table.pack(callback(profile.Data))
+	for key in profile.Data do
+		syncKey(player, profile, key)
+	end
+	syncUpgrades(player, profile)
+	return table.unpack(results, 1, results.n)
+end
+
 -- Ставит уровень апгрейда (Mask/Tool/Cloak). Проверки цены — на вызывающем сервисе.
 function DataService.SetUpgradeLevel(player: Player, name: string, level: number)
 	local profile = profiles[player]

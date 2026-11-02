@@ -7,6 +7,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("GameConfig"))
 local DataService = require(script.Parent:WaitForChild("DataService"))
 local notify = require(script.Parent:WaitForChild("Notify"))
+local PetService = require(script.Parent:WaitForChild("PetService"))
 
 local InfectedService = {}
 
@@ -237,7 +238,8 @@ function InfectedService.Treat(player: Player, model: Model): number
 	model:SetAttribute("Infection", infection)
 	setBar(model)
 
-	local gained = math.min(damage, space)
+	-- Миазмы удара с множителем питомцев (бонус за исцеление — без множителя)
+	local gained = math.min(PetService.ApplyMultiplier(player, damage), space)
 	if infection <= 0 then
 		local bonus = math.min(Config.Infected.CureBonus, space - gained)
 		gained += bonus

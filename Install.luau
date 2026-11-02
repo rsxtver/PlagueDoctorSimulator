@@ -72,9 +72,11 @@ N[2] = ensure(N[1], "Remotes", "Folder")
 N[3] = ensure(N[2], "Notify", "RemoteEvent")
 N[4] = ensure(N[2], "BuyUpgrade", "RemoteFunction")
 N[5] = ensure(N[2], "Rebirth", "RemoteFunction")
-N[6] = ensure(N[1], "Shared", "Folder")
-N[7] = ensure(N[6], "GameConfig", "ModuleScript")
-setSource(N[7], [[
+N[6] = ensure(N[2], "PetRequest", "RemoteFunction")
+N[7] = ensure(N[2], "EggHatched", "RemoteEvent")
+N[8] = ensure(N[1], "Shared", "Folder")
+N[9] = ensure(N[8], "GameConfig", "ModuleScript")
+setSource(N[9], [[
 -- ModuleScript: ReplicatedStorage -> Shared -> GameConfig
 -- Все игровые числа в одном месте (читают и сервер, и клиент).
 
@@ -119,6 +121,32 @@ Config.Rebirth = {
 	SkullsPerRebirth = 1,
 }
 
+-- Редкости: подпись и цвет (рамки карточек, вылупление)
+Config.Rarities = {
+	Common = { Title = "Обычный", Color = Color3.fromRGB(180, 180, 170) },
+	Uncommon = { Title = "Необычный", Color = Color3.fromRGB(110, 200, 90) },
+	Rare = { Title = "Редкий", Color = Color3.fromRGB(80, 150, 240) },
+	Epic = { Title = "Эпический", Color = Color3.fromRGB(180, 90, 230) },
+	Legendary = { Title = "Легендарный", Color = Color3.fromRGB(250, 190, 50) },
+}
+
+-- Питомцы из яйца «Чумная склянка». Chance — проценты (в сумме 100),
+-- Multiplier — множитель миазмов за удар (надетые перемножаются)
+Config.Pets = {
+	EggCost = 100,
+	MaxEquipped = 3,
+	MaxInventory = 50,
+	EggPosition = Vector3.new(-22, 0, 22), -- подставка с яйцом в Деревне
+	Order = { "Raven", "Rat", "Bat", "Ghost", "Cat" },
+	Kinds = {
+		Raven = { Title = "Ворон", Chance = 50, Multiplier = 1.1, Rarity = "Common" },
+		Rat = { Title = "Крыса-фамильяр", Chance = 30, Multiplier = 1.2, Rarity = "Uncommon" },
+		Bat = { Title = "Летучая мышь", Chance = 13, Multiplier = 1.5, Rarity = "Rare" },
+		Ghost = { Title = "Призрак", Chance = 6, Multiplier = 2, Rarity = "Epic" },
+		Cat = { Title = "Чёрный кот", Chance = 1, Multiplier = 3, Rarity = "Legendary" },
+	},
+}
+
 -- Плащ: скорость ходьбы
 Config.Cloak = {
 	BaseWalkSpeed = 16,
@@ -159,6 +187,18 @@ function Config.GetGoldMultiplier(rebirths: number): number
 	return 1 + Config.Rebirth.GoldBonusPerRebirth * rebirths
 end
 
+-- Произведение множителей надетых питомцев (список видов)
+function Config.GetPetMultiplier(kinds: { string }): number
+	local multiplier = 1
+	for _, kind in kinds do
+		local info = Config.Pets.Kinds[kind]
+		if info then
+			multiplier *= info.Multiplier
+		end
+	end
+	return multiplier
+end
+
 -- Значение эффекта апгрейда на уровне level (для магазина и сервера)
 function Config.GetUpgradeValue(name: string, level: number): number
 	if name == "Mask" then
@@ -182,9 +222,44 @@ end
 
 return Config
 ]])
-N[8] = game:GetService("ServerScriptService")
-N[9] = ensure(N[8], "MainServer", "Script")
-setSource(N[9], [[
+N[10] = ensure(N[8], "Models", "ModuleScript")
+setSource(N[10], [[
+-- ModuleScript: ReplicatedStorage -> Shared -> Models
+-- Выдаёт копии 3D-моделей (питомцы, яйцо) из папки ReplicatedStorage.Models.
+-- Модели сгенерированы в Studio (generate_procedural_model) и хранятся в репозитории
+-- как assets/Models.rbxm. Если папки нет (её не вставили), Build вернёт nil и код
+-- покажет простую запасную фигуру.
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Models = {}
+
+local function getFolder(): Instance?
+	return ReplicatedStorage:FindFirstChild("Models")
+end
+
+-- Копия модели. Все детали заякорены и без коллизий, PrimaryPart — невидимый Root в центре,
+-- «перед» модели смотрит в -Z (как у персонажа). nil, если такой модели нет.
+function Models.Build(name: string): Model?
+	local folder = getFolder()
+	local template = folder and folder:FindFirstChild(name)
+	if not template or not template:IsA("Model") then
+		return nil
+	end
+	return template:Clone()
+end
+
+function Models.Has(name: string): boolean
+	local folder = getFolder()
+	return folder ~= nil and folder:FindFirstChild(name) ~= nil
+end
+
+return Models
+]])
+if not N[1]:FindFirstChild("Models") then warn(`[Installer] Нет Models: ПКМ по {N[1]:GetFullName()} -> Insert from File -> assets/Models.rbxm`) end
+N[11] = game:GetService("ServerScriptService")
+N[12] = ensure(N[11], "MainServer", "Script")
+setSource(N[12], [[
 -- Script: ServerScriptService -> MainServer
 -- Точка входа сервера: запускает все сервисы по порядку.
 
@@ -196,18 +271,20 @@ local InfectedService = require(Services:WaitForChild("InfectedService"))
 local PharmacyService = require(Services:WaitForChild("PharmacyService"))
 local UpgradeService = require(Services:WaitForChild("UpgradeService"))
 local RebirthService = require(Services:WaitForChild("RebirthService"))
+local PetService = require(Services:WaitForChild("PetService"))
 
 DataService.Init()
 InfectedService.Init()
 PharmacyService.Init()
 UpgradeService.Init()
 RebirthService.Init()
+PetService.Init()
 
 print("[MainServer] Plague Doctor Simulator: сервер запущен")
 ]])
-N[10] = ensure(N[8], "Services", "Folder")
-N[11] = ensure(N[10], "DataService", "ModuleScript")
-setSource(N[11], [[
+N[13] = ensure(N[11], "Services", "Folder")
+N[14] = ensure(N[13], "DataService", "ModuleScript")
+setSource(N[14], [[
 -- ModuleScript: ServerScriptService -> Services -> DataService
 -- Загрузка, хранение в памяти и сохранение данных игроков (только сервер).
 
@@ -496,6 +573,21 @@ function DataService.Increment(player: Player, key: string, delta: number): numb
 	return newValue
 end
 
+-- Меняет данные игрока функцией callback(data) и синхронизирует атрибуты.
+-- Для вложенных полей (Pets, EquippedPets, Auras...). Возвращает всё, что вернул callback.
+function DataService.Update(player: Player, callback: (PlayerData) -> ...any): ...any
+	local profile = profiles[player]
+	if not profile then
+		return nil
+	end
+	local results = table.pack(callback(profile.Data))
+	for key in profile.Data do
+		syncKey(player, profile, key)
+	end
+	syncUpgrades(player, profile)
+	return table.unpack(results, 1, results.n)
+end
+
 -- Ставит уровень апгрейда (Mask/Tool/Cloak). Проверки цены — на вызывающем сервисе.
 function DataService.SetUpgradeLevel(player: Player, name: string, level: number)
 	local profile = profiles[player]
@@ -542,8 +634,8 @@ end
 
 return DataService
 ]])
-N[12] = ensure(N[10], "InfectedService", "ModuleScript")
-setSource(N[12], [[
+N[15] = ensure(N[13], "InfectedService", "ModuleScript")
+setSource(N[15], [[
 -- ModuleScript: ServerScriptService -> Services -> InfectedService
 -- Заражённые жители: появление в деревне, лечение кликом, сбор миазмов в маску.
 
@@ -553,6 +645,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("GameConfig"))
 local DataService = require(script.Parent:WaitForChild("DataService"))
 local notify = require(script.Parent:WaitForChild("Notify"))
+local PetService = require(script.Parent:WaitForChild("PetService"))
 
 local InfectedService = {}
 
@@ -783,7 +876,8 @@ function InfectedService.Treat(player: Player, model: Model): number
 	model:SetAttribute("Infection", infection)
 	setBar(model)
 
-	local gained = math.min(damage, space)
+	-- Миазмы удара с множителем питомцев (бонус за исцеление — без множителя)
+	local gained = math.min(PetService.ApplyMultiplier(player, damage), space)
 	if infection <= 0 then
 		local bonus = math.min(Config.Infected.CureBonus, space - gained)
 		gained += bonus
@@ -825,8 +919,8 @@ end
 
 return InfectedService
 ]])
-N[13] = ensure(N[10], "Notify", "ModuleScript")
-setSource(N[13], [[
+N[16] = ensure(N[13], "Notify", "ModuleScript")
+setSource(N[16], [[
 -- ModuleScript: ServerScriptService -> Services -> Notify
 -- Всплывающие сообщения игроку (показывает HUD на клиенте).
 
@@ -839,8 +933,312 @@ return function(player: Player, text: string, kind: string?)
 	remote:FireClient(player, text, kind or "info")
 end
 ]])
-N[14] = ensure(N[10], "PharmacyService", "ModuleScript")
-setSource(N[14], [[
+N[17] = ensure(N[13], "PetService", "ModuleScript")
+setSource(N[17], [=[
+-- ModuleScript: ServerScriptService -> Services -> PetService
+-- Питомцы: вылупление из яйца «Чумная склянка», инвентарь, надеть/снять, множитель миазмов.
+-- Всё решает сервер. Клиент получает только список питомцев и рисует их полёт.
+
+local HttpService = game:GetService("HttpService")
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Config = require(Shared:WaitForChild("GameConfig"))
+local Models = require(Shared:WaitForChild("Models"))
+local DataService = require(script.Parent:WaitForChild("DataService"))
+local notify = require(script.Parent:WaitForChild("Notify"))
+
+local PetService = {}
+
+local REQUEST_COOLDOWN = 0.15
+local HATCH_COOLDOWN = 1.5 -- дольше анимации вылупления
+
+local Remotes = ReplicatedStorage:WaitForChild("Remotes")
+local petRequest = Remotes:WaitForChild("PetRequest") :: RemoteFunction
+local eggHatched = Remotes:WaitForChild("EggHatched") :: RemoteEvent
+
+local lastRequest: { [Player]: number } = {}
+local lastHatch: { [Player]: number } = {}
+local carry: { [Player]: number } = {} -- дробная часть миазмов между ударами
+local initialized = false
+local random = Random.new()
+
+----------------------------------------------------------------
+-- Внутреннее
+----------------------------------------------------------------
+local function equippedKinds(data: any): { string }
+	local kinds = {}
+	for _, id in data.EquippedPets do
+		local pet = data.Pets[id]
+		if pet then
+			table.insert(kinds, pet.Kind)
+		end
+	end
+	return kinds
+end
+
+local function rollKind(): string
+	local roll = random:NextNumber(0, 100)
+	local sum = 0
+	for _, kind in Config.Pets.Order do
+		sum += Config.Pets.Kinds[kind].Chance
+		if roll < sum then
+			return kind
+		end
+	end
+	return Config.Pets.Order[1]
+end
+
+local function countPets(data: any): number
+	local n = 0
+	for _ in data.Pets do
+		n += 1
+	end
+	return n
+end
+
+-- Состояние для клиента: список питомцев и надетые id
+local function snapshot(data: any)
+	local list = {}
+	for id, pet in data.Pets do
+		table.insert(list, { Id = id, Kind = pet.Kind })
+	end
+	return {
+		Pets = list,
+		Equipped = table.clone(data.EquippedPets),
+		MaxEquipped = Config.Pets.MaxEquipped,
+		MaxInventory = Config.Pets.MaxInventory,
+	}
+end
+
+-- Атрибуты для всех клиентов: какие питомцы летают за игроком и его множитель
+local function sync(player: Player)
+	local data = DataService.Get(player)
+	if not data then
+		return
+	end
+	local kinds = equippedKinds(data)
+	player:SetAttribute("EquippedPetKinds", table.concat(kinds, ","))
+	player:SetAttribute("PetMultiplier", math.floor(Config.GetPetMultiplier(kinds) * 1000 + 0.5) / 1000)
+end
+
+----------------------------------------------------------------
+-- Публичное API
+----------------------------------------------------------------
+
+-- Множитель миазмов от надетых питомцев
+function PetService.GetMultiplier(player: Player): number
+	local data = DataService.Get(player)
+	return if data then Config.GetPetMultiplier(equippedKinds(data)) else 1
+end
+
+-- Переводит «сырые» миазмы удара в миазмы с множителем питомцев.
+-- Дробная часть копится, чтобы x1.1 не терялся при маленьких числах.
+function PetService.ApplyMultiplier(player: Player, amount: number): number
+	local total = (carry[player] or 0) + amount * PetService.GetMultiplier(player)
+	local whole = math.floor(total + 1e-6)
+	carry[player] = total - whole
+	return whole
+end
+
+-- Вылупление. Возвращает (успех, сообщение, вид питомца?)
+function PetService.Hatch(player: Player): (boolean, string, string?)
+	local now = os.clock()
+	if now - (lastHatch[player] or 0) < HATCH_COOLDOWN then
+		return false, "Склянка ещё бурлит…"
+	end
+	local data = DataService.Get(player)
+	if not data then
+		return false, "Данные ещё загружаются"
+	end
+	if countPets(data) >= Config.Pets.MaxInventory then
+		return false, `Инвентарь полон ({Config.Pets.MaxInventory})`
+	end
+	if data.Gold < Config.Pets.EggCost then
+		return false, `Нужно {Config.Pets.EggCost} золота`
+	end
+	lastHatch[player] = now
+
+	local kind = rollKind()
+	local id = HttpService:GenerateGUID(false)
+	DataService.Increment(player, "Gold", -Config.Pets.EggCost)
+	DataService.Update(player, function(d)
+		d.Pets[id] = { Kind = kind }
+	end)
+	sync(player)
+	eggHatched:FireClient(player, kind, id, snapshot(DataService.Get(player)))
+	return true, `Вылупился {Config.Pets.Kinds[kind].Title}!`, kind
+end
+
+function PetService.Equip(player: Player, id: any): (boolean, string)
+	if type(id) ~= "string" then
+		return false, "Неверный питомец"
+	end
+	return DataService.Update(player, function(d)
+		if not d.Pets[id] then
+			return false, "Такого питомца нет"
+		end
+		if table.find(d.EquippedPets, id) then
+			return false, "Уже надет"
+		end
+		if #d.EquippedPets >= Config.Pets.MaxEquipped then
+			return false, `Можно надеть не больше {Config.Pets.MaxEquipped}`
+		end
+		table.insert(d.EquippedPets, id)
+		return true, "Питомец надет"
+	end)
+end
+
+function PetService.Unequip(player: Player, id: any): (boolean, string)
+	if type(id) ~= "string" then
+		return false, "Неверный питомец"
+	end
+	return DataService.Update(player, function(d)
+		local index = table.find(d.EquippedPets, id)
+		if not index then
+			return false, "Питомец не надет"
+		end
+		table.remove(d.EquippedPets, index)
+		return true, "Питомец снят"
+	end)
+end
+
+local function onRequest(player: Player, action: any, id: any)
+	local now = os.clock()
+	if now - (lastRequest[player] or 0) < REQUEST_COOLDOWN then
+		return { Ok = false, Message = "Слишком часто" }
+	end
+	lastRequest[player] = now
+
+	local data = DataService.Get(player)
+	if not data then
+		return { Ok = false, Message = "Данные ещё загружаются" }
+	end
+
+	local ok, message = true, nil
+	if action == "equip" then
+		ok, message = PetService.Equip(player, id)
+	elseif action == "unequip" then
+		ok, message = PetService.Unequip(player, id)
+	elseif action ~= "list" then
+		return { Ok = false, Message = "Неизвестное действие" }
+	end
+	if ok == nil then
+		ok, message = false, "Данные ещё загружаются"
+	end
+	sync(player)
+	if message and not ok then
+		notify(player, message, "warn")
+	end
+	return { Ok = ok, Message = message, State = snapshot(DataService.Get(player)) }
+end
+
+----------------------------------------------------------------
+-- Яйцо в Деревне
+----------------------------------------------------------------
+local function buildEggStand()
+	local village = workspace:WaitForChild("Zones"):WaitForChild("Village")
+	local old = village:FindFirstChild("PetEgg")
+	if old then
+		old:Destroy()
+	end
+
+	local stand = Models.Build("Egg") or Instance.new("Model")
+	stand.Name = "PetEgg"
+	if not stand.PrimaryPart then
+		-- Запасной вариант, если модели нет: простая зелёная склянка
+		local glass = Instance.new("Part")
+		glass.Name = "Root"
+		glass.Shape = Enum.PartType.Ball
+		glass.Size = Vector3.new(3, 3, 3)
+		glass.Color = Color3.fromRGB(90, 200, 70)
+		glass.Material = Enum.Material.Glass
+		glass.Transparency = 0.3
+		glass.Anchored = true
+		glass.Parent = stand
+		stand.PrimaryPart = glass
+	end
+	local _, size = stand:GetBoundingBox()
+	stand:PivotTo(CFrame.new(Config.Pets.EggPosition + Vector3.new(0, size.Y / 2, 0)))
+	for _, part in stand:GetDescendants() do
+		if part:IsA("BasePart") then
+			part.CanCollide = true
+			part.CanQuery = true
+		end
+	end
+
+	local prompt = Instance.new("ProximityPrompt")
+	prompt.ActionText = `Вылупить ({Config.Pets.EggCost} золота)`
+	prompt.ObjectText = "Чумная склянка"
+	prompt.HoldDuration = 0.4
+	prompt.MaxActivationDistance = 12
+	prompt.RequiresLineOfSight = false
+	prompt.Parent = stand.PrimaryPart
+
+	local sign = Instance.new("BillboardGui")
+	sign.Name = "Sign"
+	sign.Size = UDim2.fromOffset(220, 50)
+	sign.StudsOffset = Vector3.new(0, size.Y / 2 + 1.5, 0)
+	sign.MaxDistance = 120
+	sign.Parent = stand.PrimaryPart
+	local label = Instance.new("TextLabel")
+	label.Size = UDim2.fromScale(1, 1)
+	label.BackgroundTransparency = 1
+	label.Font = Enum.Font.Fantasy
+	label.TextScaled = true
+	label.TextColor3 = Color3.fromRGB(150, 230, 110)
+	label.TextStrokeTransparency = 0.2
+	label.Text = `ЧУМНАЯ СКЛЯНКА · {Config.Pets.EggCost}`
+	label.Parent = sign
+
+	stand.Parent = village
+
+	prompt.Triggered:Connect(function(player)
+		local ok, message = PetService.Hatch(player)
+		if not ok then
+			notify(player, message, "warn")
+		end
+	end)
+end
+
+function PetService.Init()
+	if initialized then
+		return
+	end
+	initialized = true
+
+	petRequest.OnServerInvoke = onRequest
+	buildEggStand()
+
+	local function onPlayerAdded(player: Player)
+		if DataService.WaitForData(player) then
+			-- Чистим надетых питомцев, которых нет в инвентаре (на случай битых сохранений)
+			DataService.Update(player, function(d)
+				for i = #d.EquippedPets, 1, -1 do
+					if not d.Pets[d.EquippedPets[i]] then
+						table.remove(d.EquippedPets, i)
+					end
+				end
+			end)
+			sync(player)
+		end
+	end
+	Players.PlayerAdded:Connect(onPlayerAdded)
+	for _, player in Players:GetPlayers() do
+		task.spawn(onPlayerAdded, player)
+	end
+	Players.PlayerRemoving:Connect(function(player)
+		lastRequest[player] = nil
+		lastHatch[player] = nil
+		carry[player] = nil
+	end)
+end
+
+return PetService
+]=])
+N[18] = ensure(N[13], "PharmacyService", "ModuleScript")
+setSource(N[18], [[
 -- ModuleScript: ServerScriptService -> Services -> PharmacyService
 -- Аптека: встал на зелёную площадку — миазмы из маски обменялись на золото.
 
@@ -934,8 +1332,8 @@ end
 
 return PharmacyService
 ]])
-N[15] = ensure(N[10], "RebirthService", "ModuleScript")
-setSource(N[15], [[
+N[19] = ensure(N[13], "RebirthService", "ModuleScript")
+setSource(N[19], [[
 -- ModuleScript: ServerScriptService -> Services -> RebirthService
 -- Перерождение «Новая эпидемия»: сброс золота, миазмов и апгрейдов
 -- в обмен на Чумной череп и постоянный множитель золота.
@@ -1004,8 +1402,8 @@ end
 
 return RebirthService
 ]])
-N[16] = ensure(N[10], "UpgradeService", "ModuleScript")
-setSource(N[16], [[
+N[20] = ensure(N[13], "UpgradeService", "ModuleScript")
+setSource(N[20], [[
 -- ModuleScript: ServerScriptService -> Services -> UpgradeService
 -- Покупка апгрейдов (Маска, Ланцет, Плащ) за золото и применение их эффектов.
 -- Клиент только просит купить по имени — цену, золото и уровень проверяет сервер.
@@ -1122,10 +1520,10 @@ end
 
 return UpgradeService
 ]])
-N[17] = game:GetService("StarterPlayer")
-N[18] = ensure(N[17], "StarterPlayerScripts", "StarterPlayerScripts")
-N[19] = ensure(N[18], "HUD", "LocalScript")
-setSource(N[19], [[
+N[21] = game:GetService("StarterPlayer")
+N[22] = ensure(N[21], "StarterPlayerScripts", "StarterPlayerScripts")
+N[23] = ensure(N[22], "HUD", "LocalScript")
+setSource(N[23], [[
 -- LocalScript: StarterPlayer -> StarterPlayerScripts -> HUD
 -- Интерфейс: шкала миазмов в маске, золото, всплывающие сообщения.
 -- Данные берутся из атрибутов игрока, которые выставляет сервер.
@@ -1283,8 +1681,8 @@ notifyRemote.OnClientEvent:Connect(function(text: string, kind: string)
 	end)
 end)
 ]])
-N[20] = ensure(N[18], "Shop", "LocalScript")
-setSource(N[20], [[
+N[24] = ensure(N[22], "Shop", "LocalScript")
+setSource(N[24], [[
 -- LocalScript: StarterPlayer -> StarterPlayerScripts -> Shop
 -- Окно апгрейдов: кнопка «Улучшения» и карточки Маски, Ланцета и Плаща.
 -- Клиент только показывает цены и отправляет запрос — покупку проверяет сервер.
@@ -1353,7 +1751,7 @@ openButton.BackgroundColor3 = Color3.fromRGB(120, 85, 40)
 openButton.Font = Enum.Font.GothamBold
 openButton.TextScaled = true
 openButton.TextColor3 = Color3.new(1, 1, 1)
-openButton.Text = "Улучшения [E]"
+openButton.Text = "Улучшения [U]"
 openButton.Parent = gui
 corner(openButton, 8)
 local buttonPadding = Instance.new("UIPadding")
@@ -1500,11 +1898,12 @@ local function setOpen(open: boolean)
 	window.Visible = open
 	if open then
 		refresh()
-		-- Одно окно за раз: закрываем окно перерождения
-		local other = player.PlayerGui:FindFirstChild("Rebirth")
-		local otherWindow = other and other:FindFirstChild("Window")
-		if otherWindow then
-			(otherWindow :: Frame).Visible = false
+		-- Одно окно за раз: закрываем окна других интерфейсов
+		for _, other in player.PlayerGui:GetChildren() do
+			local otherWindow = other ~= gui and other:FindFirstChild("Window")
+			if otherWindow and otherWindow:IsA("GuiObject") then
+				otherWindow.Visible = false
+			end
 		end
 	end
 end
@@ -1516,13 +1915,13 @@ closeButton.Activated:Connect(function()
 	setOpen(false)
 end)
 UserInputService.InputBegan:Connect(function(input, processed)
-	if not processed and input.KeyCode == Enum.KeyCode.E then
+	if not processed and input.KeyCode == Enum.KeyCode.U then
 		setOpen(not window.Visible)
 	end
 end)
 ]])
-N[21] = ensure(N[18], "Rebirth", "LocalScript")
-setSource(N[21], [[
+N[25] = ensure(N[22], "Rebirth", "LocalScript")
+setSource(N[25], [[
 -- LocalScript: StarterPlayer -> StarterPlayerScripts -> Rebirth
 -- Окно «Новая эпидемия»: что сбросится, что получишь, подтверждение.
 -- Проверку цены и сам сброс делает сервер.
@@ -1678,27 +2077,533 @@ end)
 openButton.Activated:Connect(function()
 	window.Visible = not window.Visible
 	refresh()
-	-- Одно окно за раз: закрываем магазин
-	local other = player.PlayerGui:FindFirstChild("Shop")
-	local otherWindow = other and other:FindFirstChild("Window")
-	if window.Visible and otherWindow then
-		(otherWindow :: Frame).Visible = false
+	-- Одно окно за раз: закрываем окна других интерфейсов
+	if window.Visible then
+		for _, other in player.PlayerGui:GetChildren() do
+			local otherWindow = other ~= gui and other:FindFirstChild("Window")
+			if otherWindow and otherWindow:IsA("GuiObject") then
+				otherWindow.Visible = false
+			end
+		end
 	end
 end)
 closeButton.Activated:Connect(function()
 	window.Visible = false
 end)
 ]])
-N[22] = game:GetService("ServerStorage")
-N[23] = ensure(N[22], "NPCTemplates", "Folder")
-N[24] = ensure(N[22], "PetModels", "Folder")
-N[25] = game:GetService("Workspace")
-N[26] = ensure(N[25], "Zones", "Folder")
-N[27] = ensure(N[26], "Village", "Folder")
-N[28] = ensure(N[27], "Infected", "Folder")
-N[29] = ensure(N[27], "Pharmacy", "Folder")
-N[30] = ensure(N[29], "SellPart", "Part", { Anchored = true, CanCollide = false, Transparency = 0.5, Size = Vector3.new(12, 1, 12), Position = Vector3.new(0, 0.5, 30), Color = Color3.new(0.25, 0.85, 0.35), Material = Enum.Material.Neon })
+N[26] = ensure(N[22], "Pets", "LocalScript")
+setSource(N[26], [[
+-- LocalScript: StarterPlayer -> StarterPlayerScripts -> Pets
+-- Полёт питомцев за игроками. Только визуал: какие питомцы надеты, решает сервер
+-- (атрибут игрока EquippedPetKinds), а позицию и покачивание считает клиент.
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+
+local Models = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Models"))
+
+-- Места питомцев относительно игрока (по бокам и над головой). Перед персонажа — это -Z.
+-- Прямо за спиной не ставим: там питомец загораживает персонажа от камеры.
+local SLOTS = {
+	Vector3.new(-3.2, 2, 2.5),
+	Vector3.new(3.2, 2, 2.5),
+	Vector3.new(0, 5.2, 1.5),
+}
+local BOB_HEIGHT = 0.35
+local BOB_SPEED = 2.2
+local FOLLOW_SHARPNESS = 8 -- чем больше, тем плотнее держатся за игроком
+
+local folder = Instance.new("Folder")
+folder.Name = "ClientPets"
+folder.Parent = workspace
+
+type Follower = { Model: Model, Slot: number, Phase: number, Current: CFrame? }
+local followers: { [Player]: { Kinds: string, List: { Follower } } } = {}
+
+local function fallbackModel(): Model
+	local model = Instance.new("Model")
+	local ball = Instance.new("Part")
+	ball.Name = "Root"
+	ball.Shape = Enum.PartType.Ball
+	ball.Size = Vector3.new(1.5, 1.5, 1.5)
+	ball.Color = Color3.fromRGB(60, 60, 70)
+	ball.Anchored = true
+	ball.CanCollide = false
+	ball.CanQuery = false
+	ball.Parent = model
+	model.PrimaryPart = ball
+	return model
+end
+
+local function clear(player: Player)
+	local entry = followers[player]
+	if entry then
+		for _, f in entry.List do
+			f.Model:Destroy()
+		end
+	end
+	followers[player] = nil
+end
+
+local function refresh(player: Player)
+	local kinds = player:GetAttribute("EquippedPetKinds") or ""
+	local entry = followers[player]
+	if entry and entry.Kinds == kinds then
+		return
+	end
+	clear(player)
+	local list = {}
+	for index, kind in string.split(kinds, ",") do
+		if kind ~= "" and index <= #SLOTS then
+			local model = Models.Build(kind) or fallbackModel()
+			model.Name = `{player.Name}_{kind}`
+			model.Parent = folder
+			table.insert(list, { Model = model, Slot = index, Phase = index * 1.7 })
+		end
+	end
+	followers[player] = { Kinds = kinds, List = list }
+end
+
+local function watch(player: Player)
+	player:GetAttributeChangedSignal("EquippedPetKinds"):Connect(function()
+		refresh(player)
+	end)
+	refresh(player)
+end
+
+Players.PlayerAdded:Connect(watch)
+for _, player in Players:GetPlayers() do
+	watch(player)
+end
+Players.PlayerRemoving:Connect(clear)
+
+RunService.RenderStepped:Connect(function(dt)
+	local now = os.clock()
+	local alpha = 1 - math.exp(-FOLLOW_SHARPNESS * dt)
+	for player, entry in followers do
+		local character = player.Character
+		local root = character and character:FindFirstChild("HumanoidRootPart") :: BasePart?
+		for _, f in entry.List do
+			if not root then
+				f.Model.Parent = nil
+				f.Current = nil
+				continue
+			end
+			f.Model.Parent = folder
+			local bob = math.sin(now * BOB_SPEED + f.Phase) * BOB_HEIGHT
+			local tilt = math.sin(now * BOB_SPEED * 0.5 + f.Phase) * 0.08
+			local target = root.CFrame * CFrame.new(SLOTS[f.Slot] + Vector3.new(0, bob, 0)) * CFrame.Angles(tilt, 0, tilt)
+			f.Current = if f.Current then f.Current:Lerp(target, alpha) else target
+			f.Model:PivotTo(f.Current :: CFrame)
+		end
+	end
+end)
+]])
+N[27] = ensure(N[22], "PetsUI", "LocalScript")
+setSource(N[27], [[
+-- LocalScript: StarterPlayer -> StarterPlayerScripts -> PetsUI
+-- Инвентарь питомцев (Надеть/Снять) и анимация вылупления из яйца.
+-- Клиент только показывает состояние, которое прислал сервер, и отправляет просьбы.
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Config = require(Shared:WaitForChild("GameConfig"))
+local Models = require(Shared:WaitForChild("Models"))
+local Remotes = ReplicatedStorage:WaitForChild("Remotes")
+local petRequest = Remotes:WaitForChild("PetRequest") :: RemoteFunction
+local eggHatched = Remotes:WaitForChild("EggHatched") :: RemoteEvent
+
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
+local BG = Color3.fromRGB(18, 22, 24)
+local CARD = Color3.fromRGB(34, 40, 42)
+local TEXT = Color3.fromRGB(235, 235, 235)
+local MUTED = Color3.fromRGB(165, 175, 175)
+local EQUIP = Color3.fromRGB(70, 150, 60)
+local UNEQUIP = Color3.fromRGB(150, 60, 55)
+
+type PetState = { Pets: { { Id: string, Kind: string } }, Equipped: { string }, MaxEquipped: number, MaxInventory: number }
+local state: PetState = { Pets = {}, Equipped = {}, MaxEquipped = Config.Pets.MaxEquipped, MaxInventory = Config.Pets.MaxInventory }
+
+----------------------------------------------------------------
+-- Утилиты UI
+----------------------------------------------------------------
+local function corner(parent: Instance, radius: number)
+	local c = Instance.new("UICorner")
+	c.CornerRadius = UDim.new(0, radius)
+	c.Parent = parent
+end
+
+local function label(parent: Instance, name: string, size: UDim2, pos: UDim2, color: Color3, font: Enum.Font?): TextLabel
+	local l = Instance.new("TextLabel")
+	l.Name = name
+	l.Size = size
+	l.Position = pos
+	l.BackgroundTransparency = 1
+	l.Font = font or Enum.Font.GothamBold
+	l.TextScaled = true
+	l.TextColor3 = color
+	l.Parent = parent
+	return l
+end
+
+local function button(parent: Instance, name: string, text: string, color: Color3): TextButton
+	local b = Instance.new("TextButton")
+	b.Name = name
+	b.BackgroundColor3 = color
+	b.Font = Enum.Font.GothamBold
+	b.TextScaled = true
+	b.TextColor3 = Color3.new(1, 1, 1)
+	b.Text = text
+	b.Parent = parent
+	corner(b, 8)
+	local pad = Instance.new("UIPadding")
+	pad.PaddingTop = UDim.new(0, 6)
+	pad.PaddingBottom = UDim.new(0, 6)
+	pad.PaddingLeft = UDim.new(0, 6)
+	pad.PaddingRight = UDim.new(0, 6)
+	pad.Parent = b
+	return b
+end
+
+-- 3D-превью модели в ViewportFrame, камера смотрит в «перед» модели (-Z)
+local function viewport(parent: Instance, modelName: string): (ViewportFrame, Model?)
+	local frame = Instance.new("ViewportFrame")
+	frame.BackgroundTransparency = 1
+	frame.Ambient = Color3.fromRGB(170, 170, 170)
+	frame.LightColor = Color3.fromRGB(255, 255, 255)
+	frame.LightDirection = Vector3.new(-1, -1, -1)
+	frame.Parent = parent
+	local model = Models.Build(modelName)
+	if model then
+		model:PivotTo(CFrame.new())
+		model.Parent = frame
+		local center, size = model:GetBoundingBox()
+		local distance = math.max(size.X, size.Y, size.Z) * 1.6
+		local camera = Instance.new("Camera")
+		camera.FieldOfView = 40
+		camera.CFrame = CFrame.lookAt(center.Position + Vector3.new(distance * 0.35, distance * 0.3, -distance), center.Position)
+		camera.Parent = frame
+		frame.CurrentCamera = camera
+	end
+	return frame, model
+end
+
+-- Одно окно за раз: закрываем окна других интерфейсов
+local function closeOtherWindows(except: ScreenGui)
+	for _, other in playerGui:GetChildren() do
+		local window = other ~= except and other:FindFirstChild("Window")
+		if window and window:IsA("GuiObject") then
+			window.Visible = false
+		end
+	end
+end
+
+----------------------------------------------------------------
+-- Окно инвентаря
+----------------------------------------------------------------
+local gui = Instance.new("ScreenGui")
+gui.Name = "Pets"
+gui.ResetOnSpawn = false
+gui.DisplayOrder = 12
+
+local openButton = button(gui, "OpenButton", "Питомцы [P]", Color3.fromRGB(40, 110, 110))
+openButton.AnchorPoint = Vector2.new(0, 1)
+openButton.Position = UDim2.new(0, 16, 1, -212)
+openButton.Size = UDim2.fromOffset(160, 40)
+
+local window = Instance.new("Frame")
+window.Name = "Window"
+window.AnchorPoint = Vector2.new(0.5, 0.5)
+window.Position = UDim2.fromScale(0.5, 0.5)
+window.Size = UDim2.fromScale(0.92, 0.9)
+window.BackgroundColor3 = BG
+window.Visible = false
+window.Parent = gui
+corner(window, 12)
+local limit = Instance.new("UISizeConstraint")
+limit.MaxSize = Vector2.new(720, 460)
+limit.Parent = window
+
+local title = label(window, "Title", UDim2.new(1, -32, 0, 30), UDim2.fromOffset(16, 10), TEXT)
+title.TextXAlignment = Enum.TextXAlignment.Left
+title.Text = "Питомцы"
+local info = label(window, "Info", UDim2.new(1, -32, 0, 18), UDim2.fromOffset(16, 44), MUTED, Enum.Font.GothamMedium)
+info.TextXAlignment = Enum.TextXAlignment.Left
+
+local scroll = Instance.new("ScrollingFrame")
+scroll.Name = "List"
+scroll.Position = UDim2.fromOffset(12, 70)
+scroll.Size = UDim2.new(1, -24, 1, -132)
+scroll.BackgroundTransparency = 1
+scroll.BorderSizePixel = 0
+scroll.ScrollBarThickness = 6
+scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+scroll.CanvasSize = UDim2.new()
+scroll.Parent = window
+local grid = Instance.new("UIGridLayout")
+grid.CellSize = UDim2.fromOffset(130, 170)
+grid.CellPadding = UDim2.fromOffset(8, 8)
+grid.SortOrder = Enum.SortOrder.LayoutOrder
+grid.Parent = scroll
+
+local empty = label(window, "Empty", UDim2.new(1, -32, 0, 24), UDim2.new(0, 16, 0.4, 0), MUTED, Enum.Font.GothamMedium)
+empty.Text = "Питомцев пока нет — вылупи их из «Чумной склянки» в Деревне"
+
+local closeButton = button(window, "Close", "Закрыть", Color3.fromRGB(70, 60, 60))
+closeButton.AnchorPoint = Vector2.new(0.5, 1)
+closeButton.Position = UDim2.new(0.5, 0, 1, -12)
+closeButton.Size = UDim2.new(1, -24, 0, 44)
+
+gui.Parent = playerGui
+
+local busy = false
+local render -- объявлено заранее: кнопки карточек перерисовывают список
+
+local function request(action: string, id: string?)
+	if busy then
+		return
+	end
+	busy = true
+	local ok, result = pcall(function()
+		return petRequest:InvokeServer(action, id)
+	end)
+	busy = false
+	if ok and type(result) == "table" and result.State then
+		state = result.State
+		render()
+	end
+end
+
+local function rarityRank(kind: string): number
+	return table.find(Config.Pets.Order, kind) or 0
+end
+
+function render()
+	for _, child in scroll:GetChildren() do
+		if child:IsA("GuiObject") then
+			child:Destroy()
+		end
+	end
+
+	local equippedKinds = {}
+	for _, id in state.Equipped do
+		for _, pet in state.Pets do
+			if pet.Id == id then
+				table.insert(equippedKinds, pet.Kind)
+			end
+		end
+	end
+	local petMult = Config.GetPetMultiplier(equippedKinds)
+	local goldMult = Config.GetGoldMultiplier(player:GetAttribute("Rebirths") or 0)
+	info.Text = `Надето {#state.Equipped}/{state.MaxEquipped} · Инвентарь {#state.Pets}/{state.MaxInventory} · `
+		.. `Миазмы x{math.floor(petMult * 100 + 0.5) / 100} · Перерождения x{goldMult} · `
+		.. `Итого x{math.floor(petMult * goldMult * 100 + 0.5) / 100}`
+	empty.Visible = #state.Pets == 0
+
+	-- Сначала надетые, потом по редкости
+	local pets = table.clone(state.Pets)
+	table.sort(pets, function(a, b)
+		local ea, eb = table.find(state.Equipped, a.Id) ~= nil, table.find(state.Equipped, b.Id) ~= nil
+		if ea ~= eb then
+			return ea
+		end
+		return rarityRank(a.Kind) > rarityRank(b.Kind)
+	end)
+
+	for order, pet in pets do
+		local kind = Config.Pets.Kinds[pet.Kind]
+		if not kind then
+			continue
+		end
+		local rarity = Config.Rarities[kind.Rarity]
+		local equipped = table.find(state.Equipped, pet.Id) ~= nil
+
+		local card = Instance.new("Frame")
+		card.Name = pet.Id
+		card.LayoutOrder = order
+		card.BackgroundColor3 = CARD
+		card.Parent = scroll
+		corner(card, 10)
+		local stroke = Instance.new("UIStroke")
+		stroke.Color = rarity.Color
+		stroke.Thickness = if equipped then 3 else 1.5
+		stroke.Parent = card
+
+		local view = viewport(card, pet.Kind)
+		view.Size = UDim2.new(1, -8, 0, 78)
+		view.Position = UDim2.fromOffset(4, 4)
+
+		local name = label(card, "Name", UDim2.new(1, -8, 0, 18), UDim2.fromOffset(4, 84), TEXT)
+		name.Text = kind.Title
+		local sub = label(card, "Rarity", UDim2.new(1, -8, 0, 14), UDim2.fromOffset(4, 103), rarity.Color, Enum.Font.GothamMedium)
+		sub.Text = `{rarity.Title} · x{kind.Multiplier}`
+
+		local action = button(card, "Action", if equipped then "Снять" else "Надеть", if equipped then UNEQUIP else EQUIP)
+		action.Position = UDim2.fromOffset(6, 124)
+		action.Size = UDim2.new(1, -12, 0, 38)
+		action.Activated:Connect(function()
+			request(if equipped then "unequip" else "equip", pet.Id)
+		end)
+	end
+end
+
+local function setOpen(open: boolean)
+	window.Visible = open
+	if open then
+		closeOtherWindows(gui)
+		request("list")
+	end
+end
+
+openButton.Activated:Connect(function()
+	setOpen(not window.Visible)
+end)
+closeButton.Activated:Connect(function()
+	setOpen(false)
+end)
+UserInputService.InputBegan:Connect(function(input, processed)
+	if not processed and input.KeyCode == Enum.KeyCode.P then
+		setOpen(not window.Visible)
+	end
+end)
+
+----------------------------------------------------------------
+-- Анимация вылупления: яйцо трясётся → вспышка → карточка питомца
+----------------------------------------------------------------
+local hatchGui = Instance.new("ScreenGui")
+hatchGui.Name = "Hatch"
+hatchGui.ResetOnSpawn = false
+hatchGui.DisplayOrder = 20
+hatchGui.IgnoreGuiInset = true
+hatchGui.Enabled = false
+hatchGui.Parent = playerGui
+
+local backdrop = Instance.new("Frame")
+backdrop.Size = UDim2.fromScale(1, 1)
+backdrop.BackgroundColor3 = Color3.new(0, 0, 0)
+backdrop.BackgroundTransparency = 0.4
+backdrop.Parent = hatchGui
+
+local flash = Instance.new("Frame")
+flash.Name = "Flash"
+flash.Size = UDim2.fromScale(1, 1)
+flash.BackgroundColor3 = Color3.new(1, 1, 1)
+flash.BackgroundTransparency = 1
+flash.ZIndex = 5
+flash.Parent = hatchGui
+
+local hatchQueue: { string } = {}
+local hatching = false
+
+local function playHatch(kind: string)
+	local info = Config.Pets.Kinds[kind]
+	local rarity = Config.Rarities[info.Rarity]
+	hatchGui.Enabled = true
+
+	-- 1. Яйцо трясётся всё сильнее
+	local eggView, egg = viewport(hatchGui, "Egg")
+	eggView.AnchorPoint = Vector2.new(0.5, 0.5)
+	eggView.Position = UDim2.fromScale(0.5, 0.5)
+	eggView.Size = UDim2.fromScale(0.5, 0.6)
+	local start = os.clock()
+	local SHAKE_TIME = 1.4
+	while os.clock() - start < SHAKE_TIME do
+		local t = (os.clock() - start) / SHAKE_TIME
+		local angle = math.sin(os.clock() * (18 + 30 * t)) * math.rad(4 + 22 * t)
+		if egg then
+			egg:PivotTo(CFrame.Angles(0, 0, angle))
+		else
+			eggView.Rotation = math.deg(angle)
+		end
+		RunService.RenderStepped:Wait()
+	end
+
+	-- 2. Вспышка
+	flash.BackgroundTransparency = 0
+	eggView:Destroy()
+	TweenService:Create(flash, TweenInfo.new(0.6), { BackgroundTransparency = 1 }):Play()
+
+	-- 3. Карточка питомца с цветом редкости
+	local card = Instance.new("Frame")
+	card.Name = "Card"
+	card.AnchorPoint = Vector2.new(0.5, 0.5)
+	card.Position = UDim2.fromScale(0.5, 0.5)
+	card.Size = UDim2.fromOffset(0, 0)
+	card.BackgroundColor3 = BG
+	card.Parent = hatchGui
+	corner(card, 14)
+	local stroke = Instance.new("UIStroke")
+	stroke.Color = rarity.Color
+	stroke.Thickness = 4
+	stroke.Parent = card
+
+	local petView, pet = viewport(card, kind)
+	petView.Size = UDim2.new(1, -20, 0.55, 0)
+	petView.Position = UDim2.fromOffset(10, 10)
+	local rarityLabel = label(card, "Rarity", UDim2.new(1, -20, 0.09, 0), UDim2.new(0, 10, 0.57, 0), rarity.Color)
+	rarityLabel.Text = rarity.Title:upper()
+	local nameLabel = label(card, "Name", UDim2.new(1, -20, 0.11, 0), UDim2.new(0, 10, 0.67, 0), TEXT)
+	nameLabel.Text = info.Title
+	local multLabel = label(card, "Mult", UDim2.new(1, -20, 0.07, 0), UDim2.new(0, 10, 0.79, 0), MUTED, Enum.Font.GothamMedium)
+	multLabel.Text = `Миазмы x{info.Multiplier}`
+	local ok = button(card, "Ok", "Отлично!", rarity.Color)
+	ok.AnchorPoint = Vector2.new(0.5, 1)
+	ok.Position = UDim2.new(0.5, 0, 1, -10)
+	ok.Size = UDim2.new(0.7, 0, 0.1, 0)
+
+	TweenService:Create(card, TweenInfo.new(0.35, Enum.EasingStyle.Back), { Size = UDim2.fromOffset(260, 340) }):Play()
+
+	local closed = false
+	ok.Activated:Connect(function()
+		closed = true
+	end)
+	local shown = os.clock()
+	while not closed and os.clock() - shown < 4 do
+		if pet then
+			pet:PivotTo(CFrame.Angles(0, (os.clock() - shown) * 1.5, 0))
+		end
+		RunService.RenderStepped:Wait()
+	end
+	card:Destroy()
+	hatchGui.Enabled = false
+end
+
+eggHatched.OnClientEvent:Connect(function(kind: string, _id: string, newState: PetState)
+	if type(newState) == "table" then
+		state = newState
+		if window.Visible then
+			render()
+		end
+	end
+	table.insert(hatchQueue, kind)
+	if hatching then
+		return
+	end
+	hatching = true
+	while #hatchQueue > 0 do
+		playHatch(table.remove(hatchQueue, 1) :: string)
+	end
+	hatching = false
+end)
+]])
+N[28] = game:GetService("ServerStorage")
+N[29] = ensure(N[28], "NPCTemplates", "Folder")
+N[30] = game:GetService("Workspace")
+N[31] = ensure(N[30], "Zones", "Folder")
+N[32] = ensure(N[31], "Village", "Folder")
+N[33] = ensure(N[32], "Infected", "Folder")
+N[34] = ensure(N[32], "Pharmacy", "Folder")
+N[35] = ensure(N[34], "SellPart", "Part", { Anchored = true, CanCollide = false, Transparency = 0.5, Size = Vector3.new(12, 1, 12), Position = Vector3.new(0, 0.5, 30), Color = Color3.new(0.25, 0.85, 0.35), Material = Enum.Material.Neon })
 removeObsolete("ReplicatedStorage/Shared/Config")
+removeObsolete("ServerStorage/PetModels")
 
 if recording then
 	ChangeHistoryService:FinishRecording(recording, Enum.FinishRecordingOperation.Commit)

@@ -9,9 +9,12 @@
         "$className": "Folder",
         "Notify": { "$className": "RemoteEvent" },
         "BuyUpgrade": { "$className": "RemoteFunction" },
-        "Rebirth": { "$className": "RemoteFunction" }
+        "Rebirth": { "$className": "RemoteFunction" },
+        "PetRequest": { "$className": "RemoteFunction" },
+        "EggHatched": { "$className": "RemoteEvent" }
       },
-      "Shared": { "$path": "src/ReplicatedStorage/Shared" }
+      "Shared": { "$path": "src/ReplicatedStorage/Shared" },
+      "Models": { "$path": "assets/Models.rbxm" }
     },
 
     "ServerScriptService": {
@@ -26,14 +29,15 @@
         "$className": "StarterPlayerScripts",
         "HUD": { "$path": "src/StarterPlayer/StarterPlayerScripts/HUD.client.luau" },
         "Shop": { "$path": "src/StarterPlayer/StarterPlayerScripts/Shop.client.luau" },
-        "Rebirth": { "$path": "src/StarterPlayer/StarterPlayerScripts/Rebirth.client.luau" }
+        "Rebirth": { "$path": "src/StarterPlayer/StarterPlayerScripts/Rebirth.client.luau" },
+        "Pets": { "$path": "src/StarterPlayer/StarterPlayerScripts/Pets.client.luau" },
+        "PetsUI": { "$path": "src/StarterPlayer/StarterPlayerScripts/PetsUI.client.luau" }
       }
     },
 
     "ServerStorage": {
       "$className": "ServerStorage",
-      "NPCTemplates": { "$className": "Folder" },
-      "PetModels": { "$className": "Folder" }
+      "NPCTemplates": { "$className": "Folder" }
     },
 
     "Workspace": {

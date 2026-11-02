@@ -66,7 +66,7 @@ openButton.BackgroundColor3 = Color3.fromRGB(120, 85, 40)
 openButton.Font = Enum.Font.GothamBold
 openButton.TextScaled = true
 openButton.TextColor3 = Color3.new(1, 1, 1)
-openButton.Text = "Улучшения [E]"
+openButton.Text = "Улучшения [U]"
 openButton.Parent = gui
 corner(openButton, 8)
 local buttonPadding = Instance.new("UIPadding")
@@ -213,11 +213,12 @@ local function setOpen(open: boolean)
 	window.Visible = open
 	if open then
 		refresh()
-		-- Одно окно за раз: закрываем окно перерождения
-		local other = player.PlayerGui:FindFirstChild("Rebirth")
-		local otherWindow = other and other:FindFirstChild("Window")
-		if otherWindow then
-			(otherWindow :: Frame).Visible = false
+		-- Одно окно за раз: закрываем окна других интерфейсов
+		for _, other in player.PlayerGui:GetChildren() do
+			local otherWindow = other ~= gui and other:FindFirstChild("Window")
+			if otherWindow and otherWindow:IsA("GuiObject") then
+				otherWindow.Visible = false
+			end
 		end
 	end
 end
@@ -229,7 +230,7 @@ closeButton.Activated:Connect(function()
 	setOpen(false)
 end)
 UserInputService.InputBegan:Connect(function(input, processed)
-	if not processed and input.KeyCode == Enum.KeyCode.E then
+	if not processed and input.KeyCode == Enum.KeyCode.U then
 		setOpen(not window.Visible)
 	end
 end)

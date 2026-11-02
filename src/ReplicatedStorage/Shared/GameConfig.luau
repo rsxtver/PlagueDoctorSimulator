@@ -42,6 +42,32 @@ Config.Rebirth = {
 	SkullsPerRebirth = 1,
 }
 
+-- Редкости: подпись и цвет (рамки карточек, вылупление)
+Config.Rarities = {
+	Common = { Title = "Обычный", Color = Color3.fromRGB(180, 180, 170) },
+	Uncommon = { Title = "Необычный", Color = Color3.fromRGB(110, 200, 90) },
+	Rare = { Title = "Редкий", Color = Color3.fromRGB(80, 150, 240) },
+	Epic = { Title = "Эпический", Color = Color3.fromRGB(180, 90, 230) },
+	Legendary = { Title = "Легендарный", Color = Color3.fromRGB(250, 190, 50) },
+}
+
+-- Питомцы из яйца «Чумная склянка». Chance — проценты (в сумме 100),
+-- Multiplier — множитель миазмов за удар (надетые перемножаются)
+Config.Pets = {
+	EggCost = 100,
+	MaxEquipped = 3,
+	MaxInventory = 50,
+	EggPosition = Vector3.new(-22, 0, 22), -- подставка с яйцом в Деревне
+	Order = { "Raven", "Rat", "Bat", "Ghost", "Cat" },
+	Kinds = {
+		Raven = { Title = "Ворон", Chance = 50, Multiplier = 1.1, Rarity = "Common" },
+		Rat = { Title = "Крыса-фамильяр", Chance = 30, Multiplier = 1.2, Rarity = "Uncommon" },
+		Bat = { Title = "Летучая мышь", Chance = 13, Multiplier = 1.5, Rarity = "Rare" },
+		Ghost = { Title = "Призрак", Chance = 6, Multiplier = 2, Rarity = "Epic" },
+		Cat = { Title = "Чёрный кот", Chance = 1, Multiplier = 3, Rarity = "Legendary" },
+	},
+}
+
 -- Плащ: скорость ходьбы
 Config.Cloak = {
 	BaseWalkSpeed = 16,
@@ -80,6 +106,18 @@ end
 -- Множитель золота в Аптеке (1 = без бонуса)
 function Config.GetGoldMultiplier(rebirths: number): number
 	return 1 + Config.Rebirth.GoldBonusPerRebirth * rebirths
+end
+
+-- Произведение множителей надетых питомцев (список видов)
+function Config.GetPetMultiplier(kinds: { string }): number
+	local multiplier = 1
+	for _, kind in kinds do
+		local info = Config.Pets.Kinds[kind]
+		if info then
+			multiplier *= info.Multiplier
+		end
+	end
+	return multiplier
 end
 
 -- Значение эффекта апгрейда на уровне level (для магазина и сервера)

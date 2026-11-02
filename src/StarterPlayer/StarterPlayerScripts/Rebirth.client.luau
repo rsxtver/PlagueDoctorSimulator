@@ -153,11 +153,14 @@ end)
 openButton.Activated:Connect(function()
 	window.Visible = not window.Visible
 	refresh()
-	-- Одно окно за раз: закрываем магазин
-	local other = player.PlayerGui:FindFirstChild("Shop")
-	local otherWindow = other and other:FindFirstChild("Window")
-	if window.Visible and otherWindow then
-		(otherWindow :: Frame).Visible = false
+	-- Одно окно за раз: закрываем окна других интерфейсов
+	if window.Visible then
+		for _, other in player.PlayerGui:GetChildren() do
+			local otherWindow = other ~= gui and other:FindFirstChild("Window")
+			if otherWindow and otherWindow:IsA("GuiObject") then
+				otherWindow.Visible = false
+			end
+		end
 	end
 end)
 closeButton.Activated:Connect(function()

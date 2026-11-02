@@ -18,6 +18,7 @@ OUTPUT = ROOT / "Install.luau"
 # Объекты из прошлых версий, которые установщик удаляет (путь от game).
 OBSOLETE = [
     "ReplicatedStorage/Shared/Config",  # переименован в GameConfig (этап 3)
+    "ServerStorage/PetModels",  # модели теперь в ReplicatedStorage/Models (этап A)
 ]
 
 SERVICES = {
@@ -81,7 +82,18 @@ class Emitter:
             self.lines.append(f'{v} = ensure({parent_var}, "{name or script_name}", "{cls}")')
             self.lines.append(f"setSource({v}, {long_string(source)})")
 
+    def emit_model_file(self, parent_var: str, name: str, path: Path):
+        # Бинарные модели (.rbxm) в Command Bar не загрузить: только проверяем, что их вставили.
+        rel = path.relative_to(ROOT).as_posix()
+        self.lines.append(
+            f'if not {parent_var}:FindFirstChild("{name}") then '
+            f'warn(`[Installer] Нет {name}: ПКМ по {{{parent_var}:GetFullName()}} -> Insert from File -> {rel}`) end'
+        )
+
     def emit_node(self, parent_var: str, name: str, node: dict):
+        if "$path" in node and node["$path"].endswith(".rbxm"):
+            self.emit_model_file(parent_var, name, ROOT / node["$path"])
+            return
         if "$path" in node:
             self.emit_path(parent_var, name, ROOT / node["$path"])
             return
