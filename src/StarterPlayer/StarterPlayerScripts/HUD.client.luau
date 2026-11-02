@@ -64,7 +64,9 @@ padding.PaddingTop = UDim.new(0, 8)
 padding.PaddingBottom = UDim.new(0, 8)
 padding.Parent = panel
 
-local goldLabel = label(panel, "Gold", UDim2.new(1, 0, 0, 24), UDim2.new(), Color3.fromRGB(255, 210, 80))
+local goldLabel = label(panel, "Gold", UDim2.new(0.55, 0, 0, 24), UDim2.new(), Color3.fromRGB(255, 210, 80))
+local elixirLabel = label(panel, "Elixirs", UDim2.new(0.45, 0, 0, 20), UDim2.new(0.55, 0, 0, 2), Color3.fromRGB(190, 140, 255))
+elixirLabel.TextXAlignment = Enum.TextXAlignment.Right
 local maskTitle = label(panel, "MaskTitle", UDim2.new(1, 0, 0, 18), UDim2.fromOffset(0, 30), COLORS.info)
 maskTitle.Font = Enum.Font.GothamMedium
 maskTitle.Text = "Миазмы в маске"
@@ -117,6 +119,7 @@ local function refresh()
 	local miasma = player:GetAttribute("Miasma") or 0
 	local capacity = player:GetAttribute("MaskCapacity") or 1
 	local gold = player:GetAttribute("Gold") or 0
+	elixirLabel.Text = `Эликсиры: {player:GetAttribute("Elixirs") or 0}`
 	local ratio = math.clamp(miasma / capacity, 0, 1)
 
 	goldLabel.Text = `Золото: {gold}`
@@ -133,7 +136,7 @@ local function refresh()
 	end
 end
 
-for _, attr in { "Miasma", "MaskCapacity", "Gold" } do
+for _, attr in { "Miasma", "MaskCapacity", "Gold", "Elixirs" } do
 	player:GetAttributeChangedSignal(attr):Connect(refresh)
 end
 refresh()

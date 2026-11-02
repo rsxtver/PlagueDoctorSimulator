@@ -31,6 +31,7 @@ Config.Infected = {
 -- Аптека: обмен миазмов на золото
 Config.Pharmacy = {
 	GoldPerMiasma = 1,
+	MiasmaPerElixir = 25, -- 1 Эликсир за каждые 25 проданных миазмов
 }
 
 -- Перерождение «Новая эпидемия»: сброс золота, миазмов и апгрейдов
@@ -65,6 +66,24 @@ Config.Pets = {
 		Bat = { Title = "Летучая мышь", Chance = 13, Multiplier = 1.5, Rarity = "Rare" },
 		Ghost = { Title = "Призрак", Chance = 6, Multiplier = 2, Rarity = "Epic" },
 		Cat = { Title = "Чёрный кот", Chance = 1, Multiplier = 3, Rarity = "Legendary" },
+	},
+}
+
+-- Ауры: косметика вокруг персонажа (вид — в Shared/AuraEffects). Надета одна.
+-- Источники: стартовая, за N-е перерождение (Rebirth), из «Ауро-склянки» за Эликсиры (Chance, %).
+-- VIP-аура за геймпасс появится позже.
+Config.Auras = {
+	Starter = "GreenFog",
+	FlaskCost = 20, -- Эликсиров за одну Ауро-склянку
+	DuplicateRefund = 5, -- Эликсиров назад, если выпала уже имеющаяся аура
+	FlaskPosition = Vector3.new(22, 0, 22),
+	Order = { "GreenFog", "CrowFeathers", "PoisonBubbles", "GhostFlame", "RainbowPlague" },
+	Kinds = {
+		GreenFog = { Title = "Зелёный туман", Rarity = "Common" },
+		CrowFeathers = { Title = "Вороньи перья", Rarity = "Uncommon", Rebirth = 1, Chance = 45 },
+		PoisonBubbles = { Title = "Ядовитые пузыри", Rarity = "Rare", Rebirth = 3, Chance = 33 },
+		GhostFlame = { Title = "Призрачное пламя", Rarity = "Epic", Rebirth = 5, Chance = 17 },
+		RainbowPlague = { Title = "Радужная чума", Rarity = "Legendary", Rebirth = 10, Chance = 5 },
 	},
 }
 

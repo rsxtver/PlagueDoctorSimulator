@@ -29,6 +29,8 @@ export type PlayerData = {
 	Upgrades: { Mask: number, Tool: number, Cloak: number },
 	Pets: { [string]: any }, -- [petId] = { Name, Tier, ... }
 	EquippedPets: { string },
+	Auras: { [string]: boolean }, -- [auraId] = true
+	EquippedAura: string,
 }
 
 local TEMPLATE: PlayerData = {
@@ -42,6 +44,8 @@ local TEMPLATE: PlayerData = {
 	Upgrades = { Mask = 1, Tool = 1, Cloak = 1 },
 	Pets = {},
 	EquippedPets = {},
+	Auras = { GreenFog = true },
+	EquippedAura = "GreenFog",
 }
 
 -- Что показывать в таблице игроков: ключ в данных -> подпись

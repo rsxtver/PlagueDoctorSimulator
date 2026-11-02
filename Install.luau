@@ -74,9 +74,172 @@ N[4] = ensure(N[2], "BuyUpgrade", "RemoteFunction")
 N[5] = ensure(N[2], "Rebirth", "RemoteFunction")
 N[6] = ensure(N[2], "PetRequest", "RemoteFunction")
 N[7] = ensure(N[2], "EggHatched", "RemoteEvent")
-N[8] = ensure(N[1], "Shared", "Folder")
-N[9] = ensure(N[8], "GameConfig", "ModuleScript")
-setSource(N[9], [[
+N[8] = ensure(N[2], "AuraRequest", "RemoteFunction")
+N[9] = ensure(N[1], "Shared", "Folder")
+N[10] = ensure(N[9], "AuraEffects", "ModuleScript")
+setSource(N[10], [[
+-- ModuleScript: ReplicatedStorage -> Shared -> AuraEffects
+-- Внешний вид аур: Attachment в HumanoidRootPart + ParticleEmitter-ы + PointLight.
+-- Вызывает сервер (эффект реплицируется всем игрокам); клиент может звать Apply для превью.
+
+local AuraEffects = {}
+
+local SMOKE = "rbxasset://textures/particles/smoke_main.dds"
+local FIRE = "rbxasset://textures/particles/fire_main.dds"
+local SPARKLE = "rbxasset://textures/particles/sparkles_main.dds"
+
+local ATTACHMENT_NAME = "AuraAttachment"
+
+type EmitterDef = { [string]: any }
+type AuraDef = { Light: { Color: Color3, Brightness: number, Range: number }, Emitters: { EmitterDef } }
+
+local function seq(...: number): NumberSequence
+	local values = { ... }
+	if #values == 1 then
+		return NumberSequence.new(values[1])
+	end
+	local points = {}
+	for i, v in values do
+		table.insert(points, NumberSequenceKeypoint.new((i - 1) / (#values - 1), v))
+	end
+	return NumberSequence.new(points)
+end
+
+local DEFS: { [string]: AuraDef } = {
+	GreenFog = {
+		Light = { Color = Color3.fromRGB(110, 220, 90), Brightness = 0.8, Range = 8 },
+		Emitters = {
+			{
+				Texture = SMOKE, Rate = 14, Lifetime = NumberRange.new(1.5, 2.5),
+				Speed = NumberRange.new(0.3, 0.8), SpreadAngle = Vector2.new(180, 20),
+				Size = seq(1.2, 2.6), Transparency = seq(0.6, 0.75, 1),
+				Color = ColorSequence.new(Color3.fromRGB(90, 200, 70), Color3.fromRGB(50, 120, 40)),
+				Offset = Vector3.new(0, -2.5, 0),
+			},
+		},
+	},
+	CrowFeathers = {
+		Light = { Color = Color3.fromRGB(120, 100, 160), Brightness = 0.5, Range = 7 },
+		Emitters = {
+			{
+				Texture = SPARKLE, Rate = 10, Lifetime = NumberRange.new(2, 3),
+				Speed = NumberRange.new(0.5, 1.2), SpreadAngle = Vector2.new(180, 180),
+				Size = seq(0.35, 0.3), Squash = seq(-1.2), Transparency = seq(0.1, 0.2, 1),
+				Color = ColorSequence.new(Color3.fromRGB(25, 25, 35), Color3.fromRGB(60, 50, 80)),
+				Acceleration = Vector3.new(0, -1.5, 0), Rotation = NumberRange.new(0, 360),
+				RotSpeed = NumberRange.new(-90, 90),
+				Offset = Vector3.new(0, 1, 0),
+			},
+		},
+	},
+	PoisonBubbles = {
+		Light = { Color = Color3.fromRGB(170, 240, 60), Brightness = 1, Range = 9 },
+		Emitters = {
+			{
+				Texture = SPARKLE, Rate = 12, Lifetime = NumberRange.new(1.5, 2.5),
+				Speed = NumberRange.new(1, 2), SpreadAngle = Vector2.new(25, 25),
+				Size = seq(0.2, 0.6, 0.1), Transparency = seq(0.2, 0.4, 1),
+				Color = ColorSequence.new(Color3.fromRGB(190, 250, 60), Color3.fromRGB(80, 200, 40)),
+				LightEmission = 0.6,
+				Offset = Vector3.new(0, -2.5, 0), EmissionDirection = Enum.NormalId.Top,
+			},
+		},
+	},
+	GhostFlame = {
+		Light = { Color = Color3.fromRGB(90, 220, 255), Brightness = 1.6, Range = 10 },
+		Emitters = {
+			{
+				Texture = FIRE, Rate = 22, Lifetime = NumberRange.new(0.8, 1.3),
+				Speed = NumberRange.new(2, 3.5), SpreadAngle = Vector2.new(10, 10),
+				Size = seq(1.2, 0.6, 0), Transparency = seq(0.3, 0.6, 1),
+				Color = ColorSequence.new(Color3.fromRGB(150, 240, 255), Color3.fromRGB(40, 120, 255)),
+				LightEmission = 1,
+				Offset = Vector3.new(0, -2.5, 0), EmissionDirection = Enum.NormalId.Top,
+			},
+		},
+	},
+	RainbowPlague = {
+		Light = { Color = Color3.fromRGB(255, 160, 255), Brightness = 1.8, Range = 11 },
+		Emitters = {
+			{
+				Texture = SPARKLE, Rate = 25, Lifetime = NumberRange.new(1.2, 2),
+				Speed = NumberRange.new(0.8, 1.6), SpreadAngle = Vector2.new(180, 180),
+				Size = seq(0.6, 0.2), Transparency = seq(0, 1),
+				Color = ColorSequence.new({
+					ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 70, 70)),
+					ColorSequenceKeypoint.new(0.25, Color3.fromRGB(255, 220, 60)),
+					ColorSequenceKeypoint.new(0.5, Color3.fromRGB(80, 230, 90)),
+					ColorSequenceKeypoint.new(0.75, Color3.fromRGB(70, 140, 255)),
+					ColorSequenceKeypoint.new(1, Color3.fromRGB(200, 90, 255)),
+				}),
+				LightEmission = 1, RotSpeed = NumberRange.new(-180, 180), SpreadAngle = Vector2.new(180, 180),
+			},
+			{
+				Texture = SMOKE, Rate = 6, Lifetime = NumberRange.new(2, 3),
+				Speed = NumberRange.new(0.2, 0.5), Size = seq(1.5, 3), Transparency = seq(0.75, 1),
+				Color = ColorSequence.new(Color3.fromRGB(120, 230, 100), Color3.fromRGB(190, 110, 255)),
+				Offset = Vector3.new(0, -2.5, 0),
+			},
+		},
+	},
+}
+
+-- Снимает ауру с персонажа
+function AuraEffects.Remove(character: Model)
+	local root = character:FindFirstChild("HumanoidRootPart")
+	local old = root and root:FindFirstChild(ATTACHMENT_NAME)
+	if old then
+		old:Destroy()
+	end
+end
+
+-- Надевает ауру на персонажа (старая снимается). Неизвестное имя — просто снимает.
+function AuraEffects.Apply(character: Model, auraName: string)
+	AuraEffects.Remove(character)
+	local root = character:FindFirstChild("HumanoidRootPart")
+	local def = DEFS[auraName]
+	if not root or not def then
+		return
+	end
+
+	local attachment = Instance.new("Attachment")
+	attachment.Name = ATTACHMENT_NAME
+	attachment:SetAttribute("Aura", auraName)
+
+	for _, e in def.Emitters do
+		local holder: Instance = attachment
+		if e.Offset then
+			local sub = Instance.new("Attachment")
+			sub.Name = "Offset"
+			sub.Position = e.Offset
+			sub.Parent = attachment
+			holder = sub
+		end
+		local emitter = Instance.new("ParticleEmitter")
+		for key, value in e do
+			if key == "Offset" then
+				continue
+			end
+			(emitter :: any)[key] = value
+		end
+		emitter.LockedToPart = false
+		emitter.Parent = holder
+	end
+
+	local light = Instance.new("PointLight")
+	light.Color = def.Light.Color
+	light.Brightness = def.Light.Brightness
+	light.Range = def.Light.Range
+	light.Shadows = false
+	light.Parent = attachment
+
+	attachment.Parent = root
+end
+
+return AuraEffects
+]])
+N[11] = ensure(N[9], "GameConfig", "ModuleScript")
+setSource(N[11], [[
 -- ModuleScript: ReplicatedStorage -> Shared -> GameConfig
 -- Все игровые числа в одном месте (читают и сервер, и клиент).
 
@@ -110,6 +273,7 @@ Config.Infected = {
 -- Аптека: обмен миазмов на золото
 Config.Pharmacy = {
 	GoldPerMiasma = 1,
+	MiasmaPerElixir = 25, -- 1 Эликсир за каждые 25 проданных миазмов
 }
 
 -- Перерождение «Новая эпидемия»: сброс золота, миазмов и апгрейдов
@@ -144,6 +308,24 @@ Config.Pets = {
 		Bat = { Title = "Летучая мышь", Chance = 13, Multiplier = 1.5, Rarity = "Rare" },
 		Ghost = { Title = "Призрак", Chance = 6, Multiplier = 2, Rarity = "Epic" },
 		Cat = { Title = "Чёрный кот", Chance = 1, Multiplier = 3, Rarity = "Legendary" },
+	},
+}
+
+-- Ауры: косметика вокруг персонажа (вид — в Shared/AuraEffects). Надета одна.
+-- Источники: стартовая, за N-е перерождение (Rebirth), из «Ауро-склянки» за Эликсиры (Chance, %).
+-- VIP-аура за геймпасс появится позже.
+Config.Auras = {
+	Starter = "GreenFog",
+	FlaskCost = 20, -- Эликсиров за одну Ауро-склянку
+	DuplicateRefund = 5, -- Эликсиров назад, если выпала уже имеющаяся аура
+	FlaskPosition = Vector3.new(22, 0, 22),
+	Order = { "GreenFog", "CrowFeathers", "PoisonBubbles", "GhostFlame", "RainbowPlague" },
+	Kinds = {
+		GreenFog = { Title = "Зелёный туман", Rarity = "Common" },
+		CrowFeathers = { Title = "Вороньи перья", Rarity = "Uncommon", Rebirth = 1, Chance = 45 },
+		PoisonBubbles = { Title = "Ядовитые пузыри", Rarity = "Rare", Rebirth = 3, Chance = 33 },
+		GhostFlame = { Title = "Призрачное пламя", Rarity = "Epic", Rebirth = 5, Chance = 17 },
+		RainbowPlague = { Title = "Радужная чума", Rarity = "Legendary", Rebirth = 10, Chance = 5 },
 	},
 }
 
@@ -222,8 +404,8 @@ end
 
 return Config
 ]])
-N[10] = ensure(N[8], "Models", "ModuleScript")
-setSource(N[10], [[
+N[12] = ensure(N[9], "Models", "ModuleScript")
+setSource(N[12], [[
 -- ModuleScript: ReplicatedStorage -> Shared -> Models
 -- Выдаёт копии 3D-моделей (питомцы, яйцо) из папки ReplicatedStorage.Models.
 -- Модели сгенерированы в Studio (generate_procedural_model) и хранятся в репозитории
@@ -257,9 +439,9 @@ end
 return Models
 ]])
 if not N[1]:FindFirstChild("Models") then warn(`[Installer] Нет Models: ПКМ по {N[1]:GetFullName()} -> Insert from File -> assets/Models.rbxm`) end
-N[11] = game:GetService("ServerScriptService")
-N[12] = ensure(N[11], "MainServer", "Script")
-setSource(N[12], [[
+N[13] = game:GetService("ServerScriptService")
+N[14] = ensure(N[13], "MainServer", "Script")
+setSource(N[14], [[
 -- Script: ServerScriptService -> MainServer
 -- Точка входа сервера: запускает все сервисы по порядку.
 
@@ -272,6 +454,7 @@ local PharmacyService = require(Services:WaitForChild("PharmacyService"))
 local UpgradeService = require(Services:WaitForChild("UpgradeService"))
 local RebirthService = require(Services:WaitForChild("RebirthService"))
 local PetService = require(Services:WaitForChild("PetService"))
+local AuraService = require(Services:WaitForChild("AuraService"))
 
 DataService.Init()
 InfectedService.Init()
@@ -279,12 +462,281 @@ PharmacyService.Init()
 UpgradeService.Init()
 RebirthService.Init()
 PetService.Init()
+AuraService.Init()
 
 print("[MainServer] Plague Doctor Simulator: сервер запущен")
 ]])
-N[13] = ensure(N[11], "Services", "Folder")
-N[14] = ensure(N[13], "DataService", "ModuleScript")
-setSource(N[14], [[
+N[15] = ensure(N[13], "Services", "Folder")
+N[16] = ensure(N[15], "AuraService", "ModuleScript")
+setSource(N[16], [[
+-- ModuleScript: ServerScriptService -> Services -> AuraService
+-- Ауры: выдача (стартовая, за перерождения, из Ауро-склянки за Эликсиры), выбор одной,
+-- показ эффекта на персонаже. Всё решает сервер; клиент только просит надеть.
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Config = require(Shared:WaitForChild("GameConfig"))
+local AuraEffects = require(Shared:WaitForChild("AuraEffects"))
+local Models = require(Shared:WaitForChild("Models"))
+local DataService = require(script.Parent:WaitForChild("DataService"))
+local notify = require(script.Parent:WaitForChild("Notify"))
+
+local AuraService = {}
+
+local REQUEST_COOLDOWN = 0.2
+local FLASK_COOLDOWN = 1
+local auraRequest = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("AuraRequest") :: RemoteFunction
+
+local lastRequest: { [Player]: number } = {}
+local lastFlask: { [Player]: number } = {}
+local initialized = false
+local random = Random.new()
+
+----------------------------------------------------------------
+-- Внутреннее
+----------------------------------------------------------------
+local function snapshot(data: any)
+	local owned = {}
+	for name in data.Auras do
+		if Config.Auras.Kinds[name] then
+			table.insert(owned, name)
+		end
+	end
+	return { Owned = owned, Equipped = data.EquippedAura }
+end
+
+-- Эффект на персонаже + атрибут Aura (его читает GUI)
+local function applyVisual(player: Player)
+	local data = DataService.Get(player)
+	if not data then
+		return
+	end
+	player:SetAttribute("Aura", data.EquippedAura)
+	if player.Character then
+		AuraEffects.Apply(player.Character, data.EquippedAura)
+	end
+end
+
+----------------------------------------------------------------
+-- Публичное API
+----------------------------------------------------------------
+
+-- Выдаёт ауру. false — уже была или неизвестна.
+function AuraService.Grant(player: Player, name: string): boolean
+	if not Config.Auras.Kinds[name] then
+		return false
+	end
+	local granted = DataService.Update(player, function(d)
+		if d.Auras[name] then
+			return false
+		end
+		d.Auras[name] = true
+		return true
+	end)
+	return granted == true
+end
+
+-- Вызывается после перерождения: выдаёт все ауры за достигнутые перерождения
+function AuraService.OnRebirth(player: Player, rebirths: number)
+	for _, name in Config.Auras.Order do
+		local info = Config.Auras.Kinds[name]
+		if info.Rebirth and rebirths >= info.Rebirth and AuraService.Grant(player, name) then
+			notify(player, `Новая аура за перерождение: {info.Title}!`, "good")
+		end
+	end
+end
+
+function AuraService.Equip(player: Player, name: any): (boolean, string)
+	if type(name) ~= "string" or not Config.Auras.Kinds[name] then
+		return false, "Неизвестная аура"
+	end
+	local ok, message = DataService.Update(player, function(d)
+		if not d.Auras[name] then
+			return false, "Эта аура ещё не открыта"
+		end
+		d.EquippedAura = name
+		return true, `Аура «{Config.Auras.Kinds[name].Title}» надета`
+	end)
+	if ok == nil then
+		return false, "Данные ещё загружаются"
+	end
+	if ok then
+		applyVisual(player)
+	end
+	return ok, message
+end
+
+-- Ауро-склянка: случайная аура (по Chance) за Эликсиры, дубликат возвращает часть Эликсиров
+function AuraService.OpenFlask(player: Player): (boolean, string)
+	local now = os.clock()
+	if now - (lastFlask[player] or 0) < FLASK_COOLDOWN then
+		return false, "Склянка ещё бурлит…"
+	end
+	local data = DataService.Get(player)
+	if not data then
+		return false, "Данные ещё загружаются"
+	end
+	if data.Elixirs < Config.Auras.FlaskCost then
+		return false, `Нужно {Config.Auras.FlaskCost} эликсиров (их даёт Аптека)`
+	end
+	lastFlask[player] = now
+
+	local total = 0
+	for _, name in Config.Auras.Order do
+		total += Config.Auras.Kinds[name].Chance or 0
+	end
+	local roll = random:NextNumber(0, total)
+	local picked = Config.Auras.Order[#Config.Auras.Order]
+	local sum = 0
+	for _, name in Config.Auras.Order do
+		sum += Config.Auras.Kinds[name].Chance or 0
+		if roll < sum then
+			picked = name
+			break
+		end
+	end
+
+	DataService.Increment(player, "Elixirs", -Config.Auras.FlaskCost)
+	local title = Config.Auras.Kinds[picked].Title
+	if AuraService.Grant(player, picked) then
+		return true, `Ауро-склянка: новая аура «{title}»!`
+	end
+	DataService.Increment(player, "Elixirs", Config.Auras.DuplicateRefund)
+	return true, `Ауро-склянка: «{title}» уже есть, +{Config.Auras.DuplicateRefund} эликсиров назад`
+end
+
+local function onRequest(player: Player, action: any, name: any)
+	local now = os.clock()
+	if now - (lastRequest[player] or 0) < REQUEST_COOLDOWN then
+		return { Ok = false, Message = "Слишком часто" }
+	end
+	lastRequest[player] = now
+
+	local data = DataService.Get(player)
+	if not data then
+		return { Ok = false, Message = "Данные ещё загружаются" }
+	end
+	local ok, message = true, nil
+	if action == "equip" then
+		ok, message = AuraService.Equip(player, name)
+		notify(player, message, if ok then "good" else "warn")
+	elseif action ~= "list" then
+		return { Ok = false, Message = "Неизвестное действие" }
+	end
+	return { Ok = ok, Message = message, State = snapshot(DataService.Get(player)) }
+end
+
+----------------------------------------------------------------
+-- Ауро-склянка в Деревне (фиолетовая копия модели яйца)
+----------------------------------------------------------------
+local function buildFlaskStand()
+	local village = workspace:WaitForChild("Zones"):WaitForChild("Village")
+	local old = village:FindFirstChild("AuraFlask")
+	if old then
+		old:Destroy()
+	end
+	local stand = Models.Build("Egg") or Instance.new("Model")
+	stand.Name = "AuraFlask"
+	if not stand.PrimaryPart then
+		local glass = Instance.new("Part")
+		glass.Name = "Root"
+		glass.Shape = Enum.PartType.Ball
+		glass.Size = Vector3.new(3, 3, 3)
+		glass.Material = Enum.Material.Glass
+		glass.Transparency = 0.3
+		glass.Anchored = true
+		glass.Parent = stand
+		stand.PrimaryPart = glass
+	end
+	-- Перекрашиваем зелёное зелье в фиолетовое
+	for _, part in stand:GetDescendants() do
+		if part:IsA("BasePart") then
+			local h, s, v = part.Color:ToHSV()
+			if h > 0.2 and h < 0.45 and s > 0.3 then
+				part.Color = Color3.fromHSV(0.78, s, v)
+			end
+			part.CanCollide = true
+			part.CanQuery = true
+		end
+	end
+	local _, size = stand:GetBoundingBox()
+	stand:PivotTo(CFrame.new(Config.Auras.FlaskPosition + Vector3.new(0, size.Y / 2, 0)))
+
+	local prompt = Instance.new("ProximityPrompt")
+	prompt.ActionText = `Открыть ({Config.Auras.FlaskCost} эликсиров)`
+	prompt.ObjectText = "Ауро-склянка"
+	prompt.HoldDuration = 0.4
+	prompt.MaxActivationDistance = 12
+	prompt.RequiresLineOfSight = false
+	prompt.Parent = stand.PrimaryPart
+
+	local sign = Instance.new("BillboardGui")
+	sign.Name = "Sign"
+	sign.Size = UDim2.fromOffset(220, 50)
+	sign.StudsOffset = Vector3.new(0, size.Y / 2 + 1.5, 0)
+	sign.MaxDistance = 120
+	sign.Parent = stand.PrimaryPart
+	local label = Instance.new("TextLabel")
+	label.Size = UDim2.fromScale(1, 1)
+	label.BackgroundTransparency = 1
+	label.Font = Enum.Font.Fantasy
+	label.TextScaled = true
+	label.TextColor3 = Color3.fromRGB(200, 150, 255)
+	label.TextStrokeTransparency = 0.2
+	label.Text = `АУРО-СКЛЯНКА · {Config.Auras.FlaskCost} эликс.`
+	label.Parent = sign
+
+	stand.Parent = village
+	prompt.Triggered:Connect(function(player)
+		local ok, message = AuraService.OpenFlask(player)
+		notify(player, message, if ok then "good" else "warn")
+	end)
+end
+
+function AuraService.Init()
+	if initialized then
+		return
+	end
+	initialized = true
+
+	auraRequest.OnServerInvoke = onRequest
+	buildFlaskStand()
+
+	local function onPlayerAdded(player: Player)
+		player.CharacterAdded:Connect(function(character)
+			character:WaitForChild("HumanoidRootPart")
+			applyVisual(player)
+		end)
+		local data = DataService.WaitForData(player)
+		if not data then
+			return
+		end
+		-- Стартовая аура всегда есть; надетая должна быть открыта; догоняем ауры за перерождения
+		DataService.Update(player, function(d)
+			d.Auras[Config.Auras.Starter] = true
+			if not d.Auras[d.EquippedAura] then
+				d.EquippedAura = Config.Auras.Starter
+			end
+		end)
+		AuraService.OnRebirth(player, data.Rebirths)
+		applyVisual(player)
+	end
+	Players.PlayerAdded:Connect(onPlayerAdded)
+	for _, player in Players:GetPlayers() do
+		task.spawn(onPlayerAdded, player)
+	end
+	Players.PlayerRemoving:Connect(function(player)
+		lastRequest[player] = nil
+		lastFlask[player] = nil
+	end)
+end
+
+return AuraService
+]])
+N[17] = ensure(N[15], "DataService", "ModuleScript")
+setSource(N[17], [[
 -- ModuleScript: ServerScriptService -> Services -> DataService
 -- Загрузка, хранение в памяти и сохранение данных игроков (только сервер).
 
@@ -316,6 +768,8 @@ export type PlayerData = {
 	Upgrades: { Mask: number, Tool: number, Cloak: number },
 	Pets: { [string]: any }, -- [petId] = { Name, Tier, ... }
 	EquippedPets: { string },
+	Auras: { [string]: boolean }, -- [auraId] = true
+	EquippedAura: string,
 }
 
 local TEMPLATE: PlayerData = {
@@ -329,6 +783,8 @@ local TEMPLATE: PlayerData = {
 	Upgrades = { Mask = 1, Tool = 1, Cloak = 1 },
 	Pets = {},
 	EquippedPets = {},
+	Auras = { GreenFog = true },
+	EquippedAura = "GreenFog",
 }
 
 -- Что показывать в таблице игроков: ключ в данных -> подпись
@@ -634,8 +1090,8 @@ end
 
 return DataService
 ]])
-N[15] = ensure(N[13], "InfectedService", "ModuleScript")
-setSource(N[15], [[
+N[18] = ensure(N[15], "InfectedService", "ModuleScript")
+setSource(N[18], [[
 -- ModuleScript: ServerScriptService -> Services -> InfectedService
 -- Заражённые жители: появление в деревне, лечение кликом, сбор миазмов в маску.
 
@@ -919,8 +1375,8 @@ end
 
 return InfectedService
 ]])
-N[16] = ensure(N[13], "Notify", "ModuleScript")
-setSource(N[16], [[
+N[19] = ensure(N[15], "Notify", "ModuleScript")
+setSource(N[19], [[
 -- ModuleScript: ServerScriptService -> Services -> Notify
 -- Всплывающие сообщения игроку (показывает HUD на клиенте).
 
@@ -933,8 +1389,8 @@ return function(player: Player, text: string, kind: string?)
 	remote:FireClient(player, text, kind or "info")
 end
 ]])
-N[17] = ensure(N[13], "PetService", "ModuleScript")
-setSource(N[17], [=[
+N[20] = ensure(N[15], "PetService", "ModuleScript")
+setSource(N[20], [=[
 -- ModuleScript: ServerScriptService -> Services -> PetService
 -- Питомцы: вылупление из яйца «Чумная склянка», инвентарь, надеть/снять, множитель миазмов.
 -- Всё решает сервер. Клиент получает только список питомцев и рисует их полёт.
@@ -1237,8 +1693,8 @@ end
 
 return PetService
 ]=])
-N[18] = ensure(N[13], "PharmacyService", "ModuleScript")
-setSource(N[18], [[
+N[21] = ensure(N[15], "PharmacyService", "ModuleScript")
+setSource(N[21], [[
 -- ModuleScript: ServerScriptService -> Services -> PharmacyService
 -- Аптека: встал на зелёную площадку — миазмы из маски обменялись на золото.
 
@@ -1269,10 +1725,15 @@ function PharmacyService.Sell(player: Player): number
 
 	local multiplier = Config.GetGoldMultiplier(data.Rebirths)
 	local gold = math.floor(data.Miasma * Config.Pharmacy.GoldPerMiasma * multiplier)
+	local elixirs = math.floor(data.Miasma / Config.Pharmacy.MiasmaPerElixir)
 	DataService.Set(player, "Miasma", 0)
 	DataService.Increment(player, "Gold", gold)
+	if elixirs > 0 then
+		DataService.Increment(player, "Elixirs", elixirs)
+	end
 	local bonus = if multiplier > 1 then ` (x{multiplier})` else ""
-	notify(player, `Аптека: +{gold} золота{bonus}`, "good")
+	local elixirText = if elixirs > 0 then `, +{elixirs} эликсир.` else ""
+	notify(player, `Аптека: +{gold} золота{bonus}{elixirText}`, "good")
 	return gold
 end
 
@@ -1332,8 +1793,8 @@ end
 
 return PharmacyService
 ]])
-N[19] = ensure(N[13], "RebirthService", "ModuleScript")
-setSource(N[19], [[
+N[22] = ensure(N[15], "RebirthService", "ModuleScript")
+setSource(N[22], [[
 -- ModuleScript: ServerScriptService -> Services -> RebirthService
 -- Перерождение «Новая эпидемия»: сброс золота, миазмов и апгрейдов
 -- в обмен на Чумной череп и постоянный множитель золота.
@@ -1344,6 +1805,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("GameConfig"))
 local DataService = require(script.Parent:WaitForChild("DataService"))
 local UpgradeService = require(script.Parent:WaitForChild("UpgradeService"))
+local AuraService = require(script.Parent:WaitForChild("AuraService"))
 local notify = require(script.Parent:WaitForChild("Notify"))
 
 local RebirthService = {}
@@ -1371,6 +1833,7 @@ function RebirthService.Rebirth(player: Player): (boolean, string)
 	local rebirths = DataService.Increment(player, "Rebirths", 1) :: number
 	DataService.Increment(player, "Skulls", Config.Rebirth.SkullsPerRebirth)
 	UpgradeService.Refresh(player)
+	AuraService.OnRebirth(player, rebirths)
 
 	return true, `Новая эпидемия #{rebirths}! Золото теперь x{Config.GetGoldMultiplier(rebirths)}`
 end
@@ -1402,8 +1865,8 @@ end
 
 return RebirthService
 ]])
-N[20] = ensure(N[13], "UpgradeService", "ModuleScript")
-setSource(N[20], [[
+N[23] = ensure(N[15], "UpgradeService", "ModuleScript")
+setSource(N[23], [[
 -- ModuleScript: ServerScriptService -> Services -> UpgradeService
 -- Покупка апгрейдов (Маска, Ланцет, Плащ) за золото и применение их эффектов.
 -- Клиент только просит купить по имени — цену, золото и уровень проверяет сервер.
@@ -1520,10 +1983,10 @@ end
 
 return UpgradeService
 ]])
-N[21] = game:GetService("StarterPlayer")
-N[22] = ensure(N[21], "StarterPlayerScripts", "StarterPlayerScripts")
-N[23] = ensure(N[22], "HUD", "LocalScript")
-setSource(N[23], [[
+N[24] = game:GetService("StarterPlayer")
+N[25] = ensure(N[24], "StarterPlayerScripts", "StarterPlayerScripts")
+N[26] = ensure(N[25], "HUD", "LocalScript")
+setSource(N[26], [[
 -- LocalScript: StarterPlayer -> StarterPlayerScripts -> HUD
 -- Интерфейс: шкала миазмов в маске, золото, всплывающие сообщения.
 -- Данные берутся из атрибутов игрока, которые выставляет сервер.
@@ -1590,7 +2053,9 @@ padding.PaddingTop = UDim.new(0, 8)
 padding.PaddingBottom = UDim.new(0, 8)
 padding.Parent = panel
 
-local goldLabel = label(panel, "Gold", UDim2.new(1, 0, 0, 24), UDim2.new(), Color3.fromRGB(255, 210, 80))
+local goldLabel = label(panel, "Gold", UDim2.new(0.55, 0, 0, 24), UDim2.new(), Color3.fromRGB(255, 210, 80))
+local elixirLabel = label(panel, "Elixirs", UDim2.new(0.45, 0, 0, 20), UDim2.new(0.55, 0, 0, 2), Color3.fromRGB(190, 140, 255))
+elixirLabel.TextXAlignment = Enum.TextXAlignment.Right
 local maskTitle = label(panel, "MaskTitle", UDim2.new(1, 0, 0, 18), UDim2.fromOffset(0, 30), COLORS.info)
 maskTitle.Font = Enum.Font.GothamMedium
 maskTitle.Text = "Миазмы в маске"
@@ -1643,6 +2108,7 @@ local function refresh()
 	local miasma = player:GetAttribute("Miasma") or 0
 	local capacity = player:GetAttribute("MaskCapacity") or 1
 	local gold = player:GetAttribute("Gold") or 0
+	elixirLabel.Text = `Эликсиры: {player:GetAttribute("Elixirs") or 0}`
 	local ratio = math.clamp(miasma / capacity, 0, 1)
 
 	goldLabel.Text = `Золото: {gold}`
@@ -1659,7 +2125,7 @@ local function refresh()
 	end
 end
 
-for _, attr in { "Miasma", "MaskCapacity", "Gold" } do
+for _, attr in { "Miasma", "MaskCapacity", "Gold", "Elixirs" } do
 	player:GetAttributeChangedSignal(attr):Connect(refresh)
 end
 refresh()
@@ -1681,8 +2147,8 @@ notifyRemote.OnClientEvent:Connect(function(text: string, kind: string)
 	end)
 end)
 ]])
-N[24] = ensure(N[22], "Shop", "LocalScript")
-setSource(N[24], [[
+N[27] = ensure(N[25], "Shop", "LocalScript")
+setSource(N[27], [[
 -- LocalScript: StarterPlayer -> StarterPlayerScripts -> Shop
 -- Окно апгрейдов: кнопка «Улучшения» и карточки Маски, Ланцета и Плаща.
 -- Клиент только показывает цены и отправляет запрос — покупку проверяет сервер.
@@ -1920,8 +2386,8 @@ UserInputService.InputBegan:Connect(function(input, processed)
 	end
 end)
 ]])
-N[25] = ensure(N[22], "Rebirth", "LocalScript")
-setSource(N[25], [[
+N[28] = ensure(N[25], "Rebirth", "LocalScript")
+setSource(N[28], [[
 -- LocalScript: StarterPlayer -> StarterPlayerScripts -> Rebirth
 -- Окно «Новая эпидемия»: что сбросится, что получишь, подтверждение.
 -- Проверку цены и сам сброс делает сервер.
@@ -2091,8 +2557,8 @@ closeButton.Activated:Connect(function()
 	window.Visible = false
 end)
 ]])
-N[26] = ensure(N[22], "Pets", "LocalScript")
-setSource(N[26], [[
+N[29] = ensure(N[25], "Pets", "LocalScript")
+setSource(N[29], [[
 -- LocalScript: StarterPlayer -> StarterPlayerScripts -> Pets
 -- Полёт питомцев за игроками. Только визуал: какие питомцы надеты, решает сервер
 -- (атрибут игрока EquippedPetKinds), а позицию и покачивание считает клиент.
@@ -2200,8 +2666,8 @@ RunService.RenderStepped:Connect(function(dt)
 	end
 end)
 ]])
-N[27] = ensure(N[22], "PetsUI", "LocalScript")
-setSource(N[27], [[
+N[30] = ensure(N[25], "PetsUI", "LocalScript")
+setSource(N[30], [[
 -- LocalScript: StarterPlayer -> StarterPlayerScripts -> PetsUI
 -- Инвентарь питомцев (Надеть/Снять) и анимация вылупления из яйца.
 -- Клиент только показывает состояние, которое прислал сервер, и отправляет просьбы.
@@ -2594,14 +3060,256 @@ eggHatched.OnClientEvent:Connect(function(kind: string, _id: string, newState: P
 	hatching = false
 end)
 ]])
-N[28] = game:GetService("ServerStorage")
-N[29] = ensure(N[28], "NPCTemplates", "Folder")
-N[30] = game:GetService("Workspace")
-N[31] = ensure(N[30], "Zones", "Folder")
-N[32] = ensure(N[31], "Village", "Folder")
-N[33] = ensure(N[32], "Infected", "Folder")
-N[34] = ensure(N[32], "Pharmacy", "Folder")
-N[35] = ensure(N[34], "SellPart", "Part", { Anchored = true, CanCollide = false, Transparency = 0.5, Size = Vector3.new(12, 1, 12), Position = Vector3.new(0, 0.5, 30), Color = Color3.new(0.25, 0.85, 0.35), Material = Enum.Material.Neon })
+N[31] = ensure(N[25], "Auras", "LocalScript")
+setSource(N[31], [[
+-- LocalScript: StarterPlayer -> StarterPlayerScripts -> Auras
+-- Окно выбора ауры. Список открытых аур и надетую присылает сервер, клиент только просит надеть.
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local UserInputService = game:GetService("UserInputService")
+
+local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("GameConfig"))
+local auraRequest = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("AuraRequest") :: RemoteFunction
+
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
+local BG = Color3.fromRGB(20, 17, 26)
+local ROW = Color3.fromRGB(38, 34, 46)
+local TEXT = Color3.fromRGB(235, 235, 235)
+local MUTED = Color3.fromRGB(170, 160, 185)
+local EQUIP = Color3.fromRGB(110, 70, 170)
+local LOCKED = Color3.fromRGB(60, 58, 66)
+
+type AuraState = { Owned: { string }, Equipped: string }
+local state: AuraState = { Owned = { Config.Auras.Starter }, Equipped = Config.Auras.Starter }
+
+local function corner(parent: Instance, radius: number)
+	local c = Instance.new("UICorner")
+	c.CornerRadius = UDim.new(0, radius)
+	c.Parent = parent
+end
+
+local function label(parent: Instance, name: string, size: UDim2, pos: UDim2, color: Color3, font: Enum.Font?): TextLabel
+	local l = Instance.new("TextLabel")
+	l.Name = name
+	l.Size = size
+	l.Position = pos
+	l.BackgroundTransparency = 1
+	l.Font = font or Enum.Font.GothamBold
+	l.TextScaled = true
+	l.TextColor3 = color
+	l.TextXAlignment = Enum.TextXAlignment.Left
+	l.Parent = parent
+	return l
+end
+
+local function button(parent: Instance, name: string, text: string, color: Color3): TextButton
+	local b = Instance.new("TextButton")
+	b.Name = name
+	b.BackgroundColor3 = color
+	b.Font = Enum.Font.GothamBold
+	b.TextScaled = true
+	b.TextColor3 = Color3.new(1, 1, 1)
+	b.Text = text
+	b.Parent = parent
+	corner(b, 8)
+	local pad = Instance.new("UIPadding")
+	pad.PaddingTop = UDim.new(0, 6)
+	pad.PaddingBottom = UDim.new(0, 6)
+	pad.PaddingLeft = UDim.new(0, 6)
+	pad.PaddingRight = UDim.new(0, 6)
+	pad.Parent = b
+	return b
+end
+
+----------------------------------------------------------------
+-- Построение
+----------------------------------------------------------------
+local gui = Instance.new("ScreenGui")
+gui.Name = "Auras"
+gui.ResetOnSpawn = false
+gui.DisplayOrder = 12
+
+local openButton = button(gui, "OpenButton", "Ауры [O]", EQUIP)
+openButton.AnchorPoint = Vector2.new(0, 1)
+openButton.Position = UDim2.new(0, 16, 1, -260)
+openButton.Size = UDim2.fromOffset(160, 40)
+
+local window = Instance.new("Frame")
+window.Name = "Window"
+window.AnchorPoint = Vector2.new(0.5, 0.5)
+window.Position = UDim2.fromScale(0.5, 0.5)
+window.Size = UDim2.fromScale(0.92, 0.9)
+window.BackgroundColor3 = BG
+window.Visible = false
+window.Parent = gui
+corner(window, 12)
+local limit = Instance.new("UISizeConstraint")
+limit.MaxSize = Vector2.new(620, 460)
+limit.Parent = window
+
+local title = label(window, "Title", UDim2.new(1, -32, 0, 30), UDim2.fromOffset(16, 10), TEXT)
+title.Text = "Ауры"
+local info = label(window, "Info", UDim2.new(1, -32, 0, 18), UDim2.fromOffset(16, 44), MUTED, Enum.Font.GothamMedium)
+
+local list = Instance.new("Frame")
+list.Name = "List"
+list.Position = UDim2.fromOffset(12, 70)
+list.Size = UDim2.new(1, -24, 1, -132)
+list.BackgroundTransparency = 1
+list.Parent = window
+local layout = Instance.new("UIListLayout")
+layout.Padding = UDim.new(0, 6)
+layout.SortOrder = Enum.SortOrder.LayoutOrder
+layout.Parent = list
+
+local closeButton = button(window, "Close", "Закрыть", Color3.fromRGB(70, 60, 75))
+closeButton.AnchorPoint = Vector2.new(0.5, 1)
+closeButton.Position = UDim2.new(0.5, 0, 1, -12)
+closeButton.Size = UDim2.new(1, -24, 0, 44)
+
+type Row = { Button: TextButton, Source: TextLabel, Stroke: UIStroke }
+local rows: { [string]: Row } = {}
+local busy = false
+local render
+
+local function request(action: string, name: string?)
+	if busy then
+		return
+	end
+	busy = true
+	local ok, result = pcall(function()
+		return auraRequest:InvokeServer(action, name)
+	end)
+	busy = false
+	if ok and type(result) == "table" and result.State then
+		state = result.State
+		render()
+	end
+end
+
+for index, name in Config.Auras.Order do
+	local aura = Config.Auras.Kinds[name]
+	local rarity = Config.Rarities[aura.Rarity]
+	local row = Instance.new("Frame")
+	row.Name = name
+	row.LayoutOrder = index
+	row.Size = UDim2.new(1, 0, 1 / #Config.Auras.Order, -6)
+	row.BackgroundColor3 = ROW
+	row.Parent = list
+	corner(row, 8)
+	local stroke = Instance.new("UIStroke")
+	stroke.Color = rarity.Color
+	stroke.Parent = row
+
+	local swatch = Instance.new("Frame")
+	swatch.Name = "Swatch"
+	swatch.AnchorPoint = Vector2.new(0, 0.5)
+	swatch.Position = UDim2.new(0, 8, 0.5, 0)
+	swatch.Size = UDim2.new(0, 10, 0.7, 0)
+	swatch.BackgroundColor3 = rarity.Color
+	swatch.Parent = row
+	corner(swatch, 4)
+
+	local name_ = label(row, "Title", UDim2.new(0.6, -28, 0.45, 0), UDim2.new(0, 26, 0.08, 0), TEXT)
+	name_.Text = aura.Title
+	local source = label(row, "Source", UDim2.new(0.6, -28, 0.32, 0), UDim2.new(0, 26, 0.58, 0), MUTED, Enum.Font.GothamMedium)
+
+	local action = button(row, "Action", "", EQUIP)
+	action.AnchorPoint = Vector2.new(1, 0.5)
+	action.Position = UDim2.new(1, -8, 0.5, 0)
+	action.Size = UDim2.new(0.34, 0, 0.72, 0)
+	action.Activated:Connect(function()
+		if table.find(state.Owned, name) and state.Equipped ~= name then
+			request("equip", name)
+		end
+	end)
+	rows[name] = { Button = action, Source = source, Stroke = stroke }
+end
+
+gui.Parent = playerGui
+
+----------------------------------------------------------------
+-- Обновление
+----------------------------------------------------------------
+function render()
+	info.Text = `Эликсиры: {player:GetAttribute("Elixirs") or 0} · Ауро-склянка в Деревне: {Config.Auras.FlaskCost} эликсиров`
+	for name, row in rows do
+		local aura = Config.Auras.Kinds[name]
+		local rarity = Config.Rarities[aura.Rarity]
+		local owned = table.find(state.Owned, name) ~= nil
+		local equipped = state.Equipped == name
+
+		if name == Config.Auras.Starter then
+			row.Source.Text = `{rarity.Title} · стартовая`
+		else
+			row.Source.Text = `{rarity.Title} · за {aura.Rebirth}-е перерождение или склянка ({aura.Chance}%)`
+		end
+		row.Stroke.Thickness = if equipped then 3 else 1
+		if equipped then
+			row.Button.Text = "Надета"
+			row.Button.BackgroundColor3 = Color3.fromRGB(60, 120, 60)
+			row.Button.AutoButtonColor = false
+		elseif owned then
+			row.Button.Text = "Надеть"
+			row.Button.BackgroundColor3 = EQUIP
+			row.Button.AutoButtonColor = true
+		else
+			row.Button.Text = "Закрыта"
+			row.Button.BackgroundColor3 = LOCKED
+			row.Button.AutoButtonColor = false
+		end
+	end
+end
+
+local function setOpen(open: boolean)
+	window.Visible = open
+	if open then
+		for _, other in playerGui:GetChildren() do
+			local otherWindow = other ~= gui and other:FindFirstChild("Window")
+			if otherWindow and otherWindow:IsA("GuiObject") then
+				otherWindow.Visible = false
+			end
+		end
+		render()
+		request("list")
+	end
+end
+
+openButton.Activated:Connect(function()
+	setOpen(not window.Visible)
+end)
+closeButton.Activated:Connect(function()
+	setOpen(false)
+end)
+UserInputService.InputBegan:Connect(function(input, processed)
+	if not processed and input.KeyCode == Enum.KeyCode.O then
+		setOpen(not window.Visible)
+	end
+end)
+player:GetAttributeChangedSignal("Elixirs"):Connect(function()
+	if window.Visible then
+		render()
+	end
+end)
+-- Новая аура (за перерождение/склянку) — обновим список при следующем открытии
+player:GetAttributeChangedSignal("Aura"):Connect(function()
+	state.Equipped = player:GetAttribute("Aura") or state.Equipped
+	if window.Visible then
+		render()
+	end
+end)
+]])
+N[32] = game:GetService("ServerStorage")
+N[33] = ensure(N[32], "NPCTemplates", "Folder")
+N[34] = game:GetService("Workspace")
+N[35] = ensure(N[34], "Zones", "Folder")
+N[36] = ensure(N[35], "Village", "Folder")
+N[37] = ensure(N[36], "Infected", "Folder")
+N[38] = ensure(N[36], "Pharmacy", "Folder")
+N[39] = ensure(N[38], "SellPart", "Part", { Anchored = true, CanCollide = false, Transparency = 0.5, Size = Vector3.new(12, 1, 12), Position = Vector3.new(0, 0.5, 30), Color = Color3.new(0.25, 0.85, 0.35), Material = Enum.Material.Neon })
 removeObsolete("ReplicatedStorage/Shared/Config")
 removeObsolete("ServerStorage/PetModels")
 

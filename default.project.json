@@ -11,7 +11,8 @@
         "BuyUpgrade": { "$className": "RemoteFunction" },
         "Rebirth": { "$className": "RemoteFunction" },
         "PetRequest": { "$className": "RemoteFunction" },
-        "EggHatched": { "$className": "RemoteEvent" }
+        "EggHatched": { "$className": "RemoteEvent" },
+        "AuraRequest": { "$className": "RemoteFunction" }
       },
       "Shared": { "$path": "src/ReplicatedStorage/Shared" },
       "Models": { "$path": "assets/Models.rbxm" }
@@ -31,7 +32,8 @@
         "Shop": { "$path": "src/StarterPlayer/StarterPlayerScripts/Shop.client.luau" },
         "Rebirth": { "$path": "src/StarterPlayer/StarterPlayerScripts/Rebirth.client.luau" },
         "Pets": { "$path": "src/StarterPlayer/StarterPlayerScripts/Pets.client.luau" },
-        "PetsUI": { "$path": "src/StarterPlayer/StarterPlayerScripts/PetsUI.client.luau" }
+        "PetsUI": { "$path": "src/StarterPlayer/StarterPlayerScripts/PetsUI.client.luau" },
+        "Auras": { "$path": "src/StarterPlayer/StarterPlayerScripts/Auras.client.luau" }
       }
     },
 

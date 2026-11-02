@@ -8,6 +8,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("GameConfig"))
 local DataService = require(script.Parent:WaitForChild("DataService"))
 local UpgradeService = require(script.Parent:WaitForChild("UpgradeService"))
+local AuraService = require(script.Parent:WaitForChild("AuraService"))
 local notify = require(script.Parent:WaitForChild("Notify"))
 
 local RebirthService = {}
@@ -35,6 +36,7 @@ function RebirthService.Rebirth(player: Player): (boolean, string)
 	local rebirths = DataService.Increment(player, "Rebirths", 1) :: number
 	DataService.Increment(player, "Skulls", Config.Rebirth.SkullsPerRebirth)
 	UpgradeService.Refresh(player)
+	AuraService.OnRebirth(player, rebirths)
 
 	return true, `Новая эпидемия #{rebirths}! Золото теперь x{Config.GetGoldMultiplier(rebirths)}`
 end
