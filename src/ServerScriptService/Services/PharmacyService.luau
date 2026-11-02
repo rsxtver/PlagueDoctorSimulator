@@ -26,10 +26,12 @@ function PharmacyService.Sell(player: Player): number
 	end
 	lastSell[player] = now
 
-	local gold = math.floor(data.Miasma * Config.Pharmacy.GoldPerMiasma)
+	local multiplier = Config.GetGoldMultiplier(data.Rebirths)
+	local gold = math.floor(data.Miasma * Config.Pharmacy.GoldPerMiasma * multiplier)
 	DataService.Set(player, "Miasma", 0)
 	DataService.Increment(player, "Gold", gold)
-	notify(player, `Аптека: +{gold} золота`, "good")
+	local bonus = if multiplier > 1 then ` (x{multiplier})` else ""
+	notify(player, `Аптека: +{gold} золота{bonus}`, "good")
 	return gold
 end
 

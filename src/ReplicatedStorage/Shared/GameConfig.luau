@@ -33,6 +33,15 @@ Config.Pharmacy = {
 	GoldPerMiasma = 1,
 }
 
+-- Перерождение «Новая эпидемия»: сброс золота, миазмов и апгрейдов
+-- в обмен на Чумные черепа и постоянный множитель золота
+Config.Rebirth = {
+	BaseCost = 500, -- золото за первое перерождение
+	CostGrowth = 2.5, -- каждое следующее дороже во столько раз
+	GoldBonusPerRebirth = 0.5, -- +50% золота в Аптеке за каждое перерождение
+	SkullsPerRebirth = 1,
+}
+
 -- Плащ: скорость ходьбы
 Config.Cloak = {
 	BaseWalkSpeed = 16,
@@ -61,6 +70,16 @@ end
 
 function Config.GetWalkSpeed(level: number): number
 	return Config.Cloak.BaseWalkSpeed + Config.Cloak.WalkSpeedPerLevel * (math.max(level, 1) - 1)
+end
+
+-- Цена следующего перерождения при текущем числе перерождений
+function Config.GetRebirthCost(rebirths: number): number
+	return math.floor(Config.Rebirth.BaseCost * Config.Rebirth.CostGrowth ^ rebirths + 0.5)
+end
+
+-- Множитель золота в Аптеке (1 = без бонуса)
+function Config.GetGoldMultiplier(rebirths: number): number
+	return 1 + Config.Rebirth.GoldBonusPerRebirth * rebirths
 end
 
 -- Значение эффекта апгрейда на уровне level (для магазина и сервера)

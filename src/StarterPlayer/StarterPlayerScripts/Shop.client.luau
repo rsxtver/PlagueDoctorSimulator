@@ -79,38 +79,40 @@ local window = Instance.new("Frame")
 window.Name = "Window"
 window.AnchorPoint = Vector2.new(0.5, 0.5)
 window.Position = UDim2.fromScale(0.5, 0.5)
-window.Size = UDim2.new(0.92, 0, 0, 330)
+window.Size = UDim2.fromScale(0.92, 0.9) -- на маленьком экране сжимается, карточки тоже
 window.BackgroundColor3 = BG
 window.BackgroundTransparency = 0.05
 window.Visible = false
 window.Parent = gui
 corner(window, 12)
 local sizeLimit = Instance.new("UISizeConstraint")
-sizeLimit.MaxSize = Vector2.new(640, 330)
+sizeLimit.MaxSize = Vector2.new(640, 384)
 sizeLimit.Parent = window
 
-local title = text(window, "Title", UDim2.new(1, -80, 0, 32), UDim2.fromOffset(16, 12), TEXT)
+local title = text(window, "Title", UDim2.new(1, -32, 0, 32), UDim2.fromOffset(16, 12), TEXT)
 title.Text = "Снаряжение доктора"
 
 local goldLabel = text(window, "Gold", UDim2.new(0.5, 0, 0, 22), UDim2.fromOffset(16, 48), GOLD, Enum.Font.GothamMedium)
 
+-- «Закрыть» внизу: правый верхний угол экрана занят таблицей игроков Roblox,
+-- она перехватывает клики, поэтому крестик там не работает
 local closeButton = Instance.new("TextButton")
 closeButton.Name = "Close"
-closeButton.AnchorPoint = Vector2.new(1, 0)
-closeButton.Position = UDim2.new(1, -12, 0, 12)
-closeButton.Size = UDim2.fromOffset(36, 36)
-closeButton.BackgroundColor3 = Color3.fromRGB(150, 50, 45)
+closeButton.AnchorPoint = Vector2.new(0.5, 1)
+closeButton.Position = UDim2.new(0.5, 0, 1, -12)
+closeButton.Size = UDim2.new(1, -24, 0, 44)
+closeButton.BackgroundColor3 = Color3.fromRGB(90, 60, 55)
 closeButton.Font = Enum.Font.GothamBold
 closeButton.TextSize = 20
 closeButton.TextColor3 = Color3.new(1, 1, 1)
-closeButton.Text = "X"
+closeButton.Text = "Закрыть"
 closeButton.Parent = window
 corner(closeButton, 8)
 
 local cards = Instance.new("Frame")
 cards.Name = "Cards"
 cards.Position = UDim2.fromOffset(12, 82)
-cards.Size = UDim2.new(1, -24, 1, -94)
+cards.Size = UDim2.new(1, -24, 1, -150)
 cards.BackgroundTransparency = 1
 cards.Parent = window
 
@@ -128,21 +130,21 @@ for index, name in Config.Upgrades.Order do
 	local card = Instance.new("Frame")
 	card.Name = name
 	card.LayoutOrder = index
-	card.Size = UDim2.new(1, 0, 0, 70)
+	card.Size = UDim2.new(1, 0, 1 / #Config.Upgrades.Order, -8)
 	card.BackgroundColor3 = CARD
 	card.Parent = cards
 	corner(card, 8)
 
-	local cardTitle = text(card, "Title", UDim2.new(0.6, -12, 0, 24), UDim2.fromOffset(12, 8), TEXT)
+	local cardTitle = text(card, "Title", UDim2.new(0.6, -12, 0.34, 0), UDim2.new(0, 12, 0.1, 0), TEXT)
 	cardTitle.Text = info.Title
-	local level = text(card, "Level", UDim2.new(0.6, -12, 0, 16), UDim2.fromOffset(12, 32), MUTED, Enum.Font.GothamMedium)
-	local effect = text(card, "Effect", UDim2.new(0.6, -12, 0, 16), UDim2.fromOffset(12, 48), MUTED, Enum.Font.GothamMedium)
+	local level = text(card, "Level", UDim2.new(0.6, -12, 0.23, 0), UDim2.new(0, 12, 0.46, 0), MUTED, Enum.Font.GothamMedium)
+	local effect = text(card, "Effect", UDim2.new(0.6, -12, 0.23, 0), UDim2.new(0, 12, 0.69, 0), MUTED, Enum.Font.GothamMedium)
 
 	local button = Instance.new("TextButton")
 	button.Name = "Buy"
 	button.AnchorPoint = Vector2.new(1, 0.5)
 	button.Position = UDim2.new(1, -10, 0.5, 0)
-	button.Size = UDim2.new(0.38, 0, 0, 46)
+	button.Size = UDim2.new(0.38, 0, 0.7, 0)
 	button.Font = Enum.Font.GothamBold
 	button.TextScaled = true
 	button.TextColor3 = Color3.new(1, 1, 1)
@@ -211,6 +213,12 @@ local function setOpen(open: boolean)
 	window.Visible = open
 	if open then
 		refresh()
+		-- Одно окно за раз: закрываем окно перерождения
+		local other = player.PlayerGui:FindFirstChild("Rebirth")
+		local otherWindow = other and other:FindFirstChild("Window")
+		if otherWindow then
+			(otherWindow :: Frame).Visible = false
+		end
 	end
 end
 

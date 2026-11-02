@@ -71,9 +71,10 @@ N[1] = game:GetService("ReplicatedStorage")
 N[2] = ensure(N[1], "Remotes", "Folder")
 N[3] = ensure(N[2], "Notify", "RemoteEvent")
 N[4] = ensure(N[2], "BuyUpgrade", "RemoteFunction")
-N[5] = ensure(N[1], "Shared", "Folder")
-N[6] = ensure(N[5], "GameConfig", "ModuleScript")
-setSource(N[6], [[
+N[5] = ensure(N[2], "Rebirth", "RemoteFunction")
+N[6] = ensure(N[1], "Shared", "Folder")
+N[7] = ensure(N[6], "GameConfig", "ModuleScript")
+setSource(N[7], [[
 -- ModuleScript: ReplicatedStorage -> Shared -> GameConfig
 -- Все игровые числа в одном месте (читают и сервер, и клиент).
 
@@ -109,6 +110,15 @@ Config.Pharmacy = {
 	GoldPerMiasma = 1,
 }
 
+-- Перерождение «Новая эпидемия»: сброс золота, миазмов и апгрейдов
+-- в обмен на Чумные черепа и постоянный множитель золота
+Config.Rebirth = {
+	BaseCost = 500, -- золото за первое перерождение
+	CostGrowth = 2.5, -- каждое следующее дороже во столько раз
+	GoldBonusPerRebirth = 0.5, -- +50% золота в Аптеке за каждое перерождение
+	SkullsPerRebirth = 1,
+}
+
 -- Плащ: скорость ходьбы
 Config.Cloak = {
 	BaseWalkSpeed = 16,
@@ -139,6 +149,16 @@ function Config.GetWalkSpeed(level: number): number
 	return Config.Cloak.BaseWalkSpeed + Config.Cloak.WalkSpeedPerLevel * (math.max(level, 1) - 1)
 end
 
+-- Цена следующего перерождения при текущем числе перерождений
+function Config.GetRebirthCost(rebirths: number): number
+	return math.floor(Config.Rebirth.BaseCost * Config.Rebirth.CostGrowth ^ rebirths + 0.5)
+end
+
+-- Множитель золота в Аптеке (1 = без бонуса)
+function Config.GetGoldMultiplier(rebirths: number): number
+	return 1 + Config.Rebirth.GoldBonusPerRebirth * rebirths
+end
+
 -- Значение эффекта апгрейда на уровне level (для магазина и сервера)
 function Config.GetUpgradeValue(name: string, level: number): number
 	if name == "Mask" then
@@ -162,9 +182,9 @@ end
 
 return Config
 ]])
-N[7] = game:GetService("ServerScriptService")
-N[8] = ensure(N[7], "MainServer", "Script")
-setSource(N[8], [[
+N[8] = game:GetService("ServerScriptService")
+N[9] = ensure(N[8], "MainServer", "Script")
+setSource(N[9], [[
 -- Script: ServerScriptService -> MainServer
 -- Точка входа сервера: запускает все сервисы по порядку.
 
@@ -175,17 +195,19 @@ local DataService = require(Services:WaitForChild("DataService"))
 local InfectedService = require(Services:WaitForChild("InfectedService"))
 local PharmacyService = require(Services:WaitForChild("PharmacyService"))
 local UpgradeService = require(Services:WaitForChild("UpgradeService"))
+local RebirthService = require(Services:WaitForChild("RebirthService"))
 
 DataService.Init()
 InfectedService.Init()
 PharmacyService.Init()
 UpgradeService.Init()
+RebirthService.Init()
 
 print("[MainServer] Plague Doctor Simulator: сервер запущен")
 ]])
-N[9] = ensure(N[7], "Services", "Folder")
-N[10] = ensure(N[9], "DataService", "ModuleScript")
-setSource(N[10], [[
+N[10] = ensure(N[8], "Services", "Folder")
+N[11] = ensure(N[10], "DataService", "ModuleScript")
+setSource(N[11], [[
 -- ModuleScript: ServerScriptService -> Services -> DataService
 -- Загрузка, хранение в памяти и сохранение данных игроков (только сервер).
 
@@ -520,8 +542,8 @@ end
 
 return DataService
 ]])
-N[11] = ensure(N[9], "InfectedService", "ModuleScript")
-setSource(N[11], [[
+N[12] = ensure(N[10], "InfectedService", "ModuleScript")
+setSource(N[12], [[
 -- ModuleScript: ServerScriptService -> Services -> InfectedService
 -- Заражённые жители: появление в деревне, лечение кликом, сбор миазмов в маску.
 
@@ -803,8 +825,8 @@ end
 
 return InfectedService
 ]])
-N[12] = ensure(N[9], "Notify", "ModuleScript")
-setSource(N[12], [[
+N[13] = ensure(N[10], "Notify", "ModuleScript")
+setSource(N[13], [[
 -- ModuleScript: ServerScriptService -> Services -> Notify
 -- Всплывающие сообщения игроку (показывает HUD на клиенте).
 
@@ -817,8 +839,8 @@ return function(player: Player, text: string, kind: string?)
 	remote:FireClient(player, text, kind or "info")
 end
 ]])
-N[13] = ensure(N[9], "PharmacyService", "ModuleScript")
-setSource(N[13], [[
+N[14] = ensure(N[10], "PharmacyService", "ModuleScript")
+setSource(N[14], [[
 -- ModuleScript: ServerScriptService -> Services -> PharmacyService
 -- Аптека: встал на зелёную площадку — миазмы из маски обменялись на золото.
 
@@ -847,10 +869,12 @@ function PharmacyService.Sell(player: Player): number
 	end
 	lastSell[player] = now
 
-	local gold = math.floor(data.Miasma * Config.Pharmacy.GoldPerMiasma)
+	local multiplier = Config.GetGoldMultiplier(data.Rebirths)
+	local gold = math.floor(data.Miasma * Config.Pharmacy.GoldPerMiasma * multiplier)
 	DataService.Set(player, "Miasma", 0)
 	DataService.Increment(player, "Gold", gold)
-	notify(player, `Аптека: +{gold} золота`, "good")
+	local bonus = if multiplier > 1 then ` (x{multiplier})` else ""
+	notify(player, `Аптека: +{gold} золота{bonus}`, "good")
 	return gold
 end
 
@@ -910,8 +934,78 @@ end
 
 return PharmacyService
 ]])
-N[14] = ensure(N[9], "UpgradeService", "ModuleScript")
-setSource(N[14], [[
+N[15] = ensure(N[10], "RebirthService", "ModuleScript")
+setSource(N[15], [[
+-- ModuleScript: ServerScriptService -> Services -> RebirthService
+-- Перерождение «Новая эпидемия»: сброс золота, миазмов и апгрейдов
+-- в обмен на Чумной череп и постоянный множитель золота.
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("GameConfig"))
+local DataService = require(script.Parent:WaitForChild("DataService"))
+local UpgradeService = require(script.Parent:WaitForChild("UpgradeService"))
+local notify = require(script.Parent:WaitForChild("Notify"))
+
+local RebirthService = {}
+
+local REQUEST_COOLDOWN = 1
+local lastRequest: { [Player]: number } = {}
+local initialized = false
+
+-- Возвращает (успех, сообщение для игрока)
+function RebirthService.Rebirth(player: Player): (boolean, string)
+	local data = DataService.Get(player)
+	if not data then
+		return false, "Данные ещё загружаются"
+	end
+	local cost = Config.GetRebirthCost(data.Rebirths)
+	if data.Gold < cost then
+		return false, `Для новой эпидемии нужно {cost} золота`
+	end
+
+	DataService.Set(player, "Gold", 0)
+	DataService.Set(player, "Miasma", 0)
+	for _, name in Config.Upgrades.Order do
+		DataService.SetUpgradeLevel(player, name, 1)
+	end
+	local rebirths = DataService.Increment(player, "Rebirths", 1) :: number
+	DataService.Increment(player, "Skulls", Config.Rebirth.SkullsPerRebirth)
+	UpgradeService.Refresh(player)
+
+	return true, `Новая эпидемия #{rebirths}! Золото теперь x{Config.GetGoldMultiplier(rebirths)}`
+end
+
+local function onRequest(player: Player): (boolean, string)
+	local now = os.clock()
+	if now - (lastRequest[player] or 0) < REQUEST_COOLDOWN then
+		return false, "Слишком часто"
+	end
+	lastRequest[player] = now
+
+	local ok, message = RebirthService.Rebirth(player)
+	notify(player, message, if ok then "good" else "warn")
+	return ok, message
+end
+
+function RebirthService.Init()
+	if initialized then
+		return
+	end
+	initialized = true
+
+	local remote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Rebirth") :: RemoteFunction
+	remote.OnServerInvoke = onRequest
+	Players.PlayerRemoving:Connect(function(player)
+		lastRequest[player] = nil
+	end)
+end
+
+return RebirthService
+]])
+N[16] = ensure(N[10], "UpgradeService", "ModuleScript")
+setSource(N[16], [[
 -- ModuleScript: ServerScriptService -> Services -> UpgradeService
 -- Покупка апгрейдов (Маска, Ланцет, Плащ) за золото и применение их эффектов.
 -- Клиент только просит купить по имени — цену, золото и уровень проверяет сервер.
@@ -1028,10 +1122,10 @@ end
 
 return UpgradeService
 ]])
-N[15] = game:GetService("StarterPlayer")
-N[16] = ensure(N[15], "StarterPlayerScripts", "StarterPlayerScripts")
-N[17] = ensure(N[16], "HUD", "LocalScript")
-setSource(N[17], [[
+N[17] = game:GetService("StarterPlayer")
+N[18] = ensure(N[17], "StarterPlayerScripts", "StarterPlayerScripts")
+N[19] = ensure(N[18], "HUD", "LocalScript")
+setSource(N[19], [[
 -- LocalScript: StarterPlayer -> StarterPlayerScripts -> HUD
 -- Интерфейс: шкала миазмов в маске, золото, всплывающие сообщения.
 -- Данные берутся из атрибутов игрока, которые выставляет сервер.
@@ -1189,8 +1283,8 @@ notifyRemote.OnClientEvent:Connect(function(text: string, kind: string)
 	end)
 end)
 ]])
-N[18] = ensure(N[16], "Shop", "LocalScript")
-setSource(N[18], [[
+N[20] = ensure(N[18], "Shop", "LocalScript")
+setSource(N[20], [[
 -- LocalScript: StarterPlayer -> StarterPlayerScripts -> Shop
 -- Окно апгрейдов: кнопка «Улучшения» и карточки Маски, Ланцета и Плаща.
 -- Клиент только показывает цены и отправляет запрос — покупку проверяет сервер.
@@ -1272,38 +1366,40 @@ local window = Instance.new("Frame")
 window.Name = "Window"
 window.AnchorPoint = Vector2.new(0.5, 0.5)
 window.Position = UDim2.fromScale(0.5, 0.5)
-window.Size = UDim2.new(0.92, 0, 0, 330)
+window.Size = UDim2.fromScale(0.92, 0.9) -- на маленьком экране сжимается, карточки тоже
 window.BackgroundColor3 = BG
 window.BackgroundTransparency = 0.05
 window.Visible = false
 window.Parent = gui
 corner(window, 12)
 local sizeLimit = Instance.new("UISizeConstraint")
-sizeLimit.MaxSize = Vector2.new(640, 330)
+sizeLimit.MaxSize = Vector2.new(640, 384)
 sizeLimit.Parent = window
 
-local title = text(window, "Title", UDim2.new(1, -80, 0, 32), UDim2.fromOffset(16, 12), TEXT)
+local title = text(window, "Title", UDim2.new(1, -32, 0, 32), UDim2.fromOffset(16, 12), TEXT)
 title.Text = "Снаряжение доктора"
 
 local goldLabel = text(window, "Gold", UDim2.new(0.5, 0, 0, 22), UDim2.fromOffset(16, 48), GOLD, Enum.Font.GothamMedium)
 
+-- «Закрыть» внизу: правый верхний угол экрана занят таблицей игроков Roblox,
+-- она перехватывает клики, поэтому крестик там не работает
 local closeButton = Instance.new("TextButton")
 closeButton.Name = "Close"
-closeButton.AnchorPoint = Vector2.new(1, 0)
-closeButton.Position = UDim2.new(1, -12, 0, 12)
-closeButton.Size = UDim2.fromOffset(36, 36)
-closeButton.BackgroundColor3 = Color3.fromRGB(150, 50, 45)
+closeButton.AnchorPoint = Vector2.new(0.5, 1)
+closeButton.Position = UDim2.new(0.5, 0, 1, -12)
+closeButton.Size = UDim2.new(1, -24, 0, 44)
+closeButton.BackgroundColor3 = Color3.fromRGB(90, 60, 55)
 closeButton.Font = Enum.Font.GothamBold
 closeButton.TextSize = 20
 closeButton.TextColor3 = Color3.new(1, 1, 1)
-closeButton.Text = "X"
+closeButton.Text = "Закрыть"
 closeButton.Parent = window
 corner(closeButton, 8)
 
 local cards = Instance.new("Frame")
 cards.Name = "Cards"
 cards.Position = UDim2.fromOffset(12, 82)
-cards.Size = UDim2.new(1, -24, 1, -94)
+cards.Size = UDim2.new(1, -24, 1, -150)
 cards.BackgroundTransparency = 1
 cards.Parent = window
 
@@ -1321,21 +1417,21 @@ for index, name in Config.Upgrades.Order do
 	local card = Instance.new("Frame")
 	card.Name = name
 	card.LayoutOrder = index
-	card.Size = UDim2.new(1, 0, 0, 70)
+	card.Size = UDim2.new(1, 0, 1 / #Config.Upgrades.Order, -8)
 	card.BackgroundColor3 = CARD
 	card.Parent = cards
 	corner(card, 8)
 
-	local cardTitle = text(card, "Title", UDim2.new(0.6, -12, 0, 24), UDim2.fromOffset(12, 8), TEXT)
+	local cardTitle = text(card, "Title", UDim2.new(0.6, -12, 0.34, 0), UDim2.new(0, 12, 0.1, 0), TEXT)
 	cardTitle.Text = info.Title
-	local level = text(card, "Level", UDim2.new(0.6, -12, 0, 16), UDim2.fromOffset(12, 32), MUTED, Enum.Font.GothamMedium)
-	local effect = text(card, "Effect", UDim2.new(0.6, -12, 0, 16), UDim2.fromOffset(12, 48), MUTED, Enum.Font.GothamMedium)
+	local level = text(card, "Level", UDim2.new(0.6, -12, 0.23, 0), UDim2.new(0, 12, 0.46, 0), MUTED, Enum.Font.GothamMedium)
+	local effect = text(card, "Effect", UDim2.new(0.6, -12, 0.23, 0), UDim2.new(0, 12, 0.69, 0), MUTED, Enum.Font.GothamMedium)
 
 	local button = Instance.new("TextButton")
 	button.Name = "Buy"
 	button.AnchorPoint = Vector2.new(1, 0.5)
 	button.Position = UDim2.new(1, -10, 0.5, 0)
-	button.Size = UDim2.new(0.38, 0, 0, 46)
+	button.Size = UDim2.new(0.38, 0, 0.7, 0)
 	button.Font = Enum.Font.GothamBold
 	button.TextScaled = true
 	button.TextColor3 = Color3.new(1, 1, 1)
@@ -1404,6 +1500,12 @@ local function setOpen(open: boolean)
 	window.Visible = open
 	if open then
 		refresh()
+		-- Одно окно за раз: закрываем окно перерождения
+		local other = player.PlayerGui:FindFirstChild("Rebirth")
+		local otherWindow = other and other:FindFirstChild("Window")
+		if otherWindow then
+			(otherWindow :: Frame).Visible = false
+		end
 	end
 end
 
@@ -1419,15 +1521,183 @@ UserInputService.InputBegan:Connect(function(input, processed)
 	end
 end)
 ]])
-N[19] = game:GetService("ServerStorage")
-N[20] = ensure(N[19], "NPCTemplates", "Folder")
-N[21] = ensure(N[19], "PetModels", "Folder")
-N[22] = game:GetService("Workspace")
-N[23] = ensure(N[22], "Zones", "Folder")
-N[24] = ensure(N[23], "Village", "Folder")
-N[25] = ensure(N[24], "Infected", "Folder")
-N[26] = ensure(N[24], "Pharmacy", "Folder")
-N[27] = ensure(N[26], "SellPart", "Part", { Anchored = true, CanCollide = false, Transparency = 0.5, Size = Vector3.new(12, 1, 12), Position = Vector3.new(0, 0.5, 30), Color = Color3.new(0.25, 0.85, 0.35), Material = Enum.Material.Neon })
+N[21] = ensure(N[18], "Rebirth", "LocalScript")
+setSource(N[21], [[
+-- LocalScript: StarterPlayer -> StarterPlayerScripts -> Rebirth
+-- Окно «Новая эпидемия»: что сбросится, что получишь, подтверждение.
+-- Проверку цены и сам сброс делает сервер.
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("GameConfig"))
+local rebirthRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Rebirth") :: RemoteFunction
+
+local player = Players.LocalPlayer
+
+local BG = Color3.fromRGB(22, 18, 26)
+local ACCENT = Color3.fromRGB(150, 90, 200)
+local CONFIRM = Color3.fromRGB(160, 50, 70)
+local DISABLED = Color3.fromRGB(70, 70, 70)
+local TEXT = Color3.fromRGB(235, 235, 235)
+local MUTED = Color3.fromRGB(175, 165, 185)
+local GOLD = Color3.fromRGB(255, 210, 80)
+
+local function corner(parent: Instance, radius: number)
+	local c = Instance.new("UICorner")
+	c.CornerRadius = UDim.new(0, radius)
+	c.Parent = parent
+end
+
+local function text(parent: Instance, name: string, height: number, y: number, color: Color3, font: Enum.Font?): TextLabel
+	local l = Instance.new("TextLabel")
+	l.Name = name
+	l.Size = UDim2.new(1, -32, 0, height)
+	l.Position = UDim2.fromOffset(16, y)
+	l.BackgroundTransparency = 1
+	l.Font = font or Enum.Font.GothamMedium
+	l.TextScaled = true
+	l.TextColor3 = color
+	l.TextXAlignment = Enum.TextXAlignment.Left
+	l.Parent = parent
+	return l
+end
+
+local function button(parent: Instance, name: string, label: string, color: Color3): TextButton
+	local b = Instance.new("TextButton")
+	b.Name = name
+	b.BackgroundColor3 = color
+	b.Font = Enum.Font.GothamBold
+	b.TextScaled = true
+	b.TextColor3 = Color3.new(1, 1, 1)
+	b.Text = label
+	b.Parent = parent
+	corner(b, 8)
+	local pad = Instance.new("UIPadding")
+	pad.PaddingTop = UDim.new(0, 8)
+	pad.PaddingBottom = UDim.new(0, 8)
+	pad.PaddingLeft = UDim.new(0, 6)
+	pad.PaddingRight = UDim.new(0, 6)
+	pad.Parent = b
+	return b
+end
+
+----------------------------------------------------------------
+-- Построение
+----------------------------------------------------------------
+local gui = Instance.new("ScreenGui")
+gui.Name = "Rebirth"
+gui.ResetOnSpawn = false
+gui.DisplayOrder = 11 -- поверх HUD и магазина
+
+-- Кнопка над «Улучшениями»
+local openButton = button(gui, "OpenButton", "Новая эпидемия", ACCENT)
+openButton.AnchorPoint = Vector2.new(0, 1)
+openButton.Position = UDim2.new(0, 16, 1, -164)
+openButton.Size = UDim2.fromOffset(160, 40)
+
+local window = Instance.new("Frame")
+window.Name = "Window"
+window.AnchorPoint = Vector2.new(0.5, 0.5)
+window.Position = UDim2.fromScale(0.5, 0.5)
+window.Size = UDim2.new(0.92, 0, 0, 300)
+window.BackgroundColor3 = BG
+window.Visible = false
+window.Parent = gui
+corner(window, 12)
+local limit = Instance.new("UISizeConstraint")
+limit.MaxSize = Vector2.new(480, 300)
+limit.Parent = window
+local stroke = Instance.new("UIStroke")
+stroke.Color = ACCENT
+stroke.Thickness = 2
+stroke.Parent = window
+
+local title = text(window, "Title", 32, 12, TEXT, Enum.Font.GothamBold)
+title.Text = "Новая эпидемия"
+
+local countLabel = text(window, "Count", 20, 54, MUTED)
+local multiplierLabel = text(window, "Multiplier", 22, 86, GOLD)
+local skullsLabel = text(window, "Skulls", 22, 114, TEXT)
+local resetLabel = text(window, "Reset", 18, 146, Color3.fromRGB(255, 140, 120))
+resetLabel.Text = "Сбросятся: золото, миазмы и все апгрейды"
+local costLabel = text(window, "Cost", 22, 180, TEXT, Enum.Font.GothamBold)
+
+-- Кнопки внизу: правый верхний угол экрана занят таблицей игроков Roblox
+local confirmButton = button(window, "Confirm", "", CONFIRM)
+confirmButton.AnchorPoint = Vector2.new(0, 1)
+confirmButton.Position = UDim2.new(0, 16, 1, -16)
+confirmButton.Size = UDim2.new(0.66, -24, 0, 50)
+
+local closeButton = button(window, "Close", "Отмена", Color3.fromRGB(70, 60, 80))
+closeButton.AnchorPoint = Vector2.new(1, 1)
+closeButton.Position = UDim2.new(1, -16, 1, -16)
+closeButton.Size = UDim2.new(0.34, -8, 0, 50)
+
+gui.Parent = player:WaitForChild("PlayerGui")
+
+----------------------------------------------------------------
+-- Обновление
+----------------------------------------------------------------
+local function refresh()
+	local rebirths = player:GetAttribute("Rebirths") or 0
+	local skulls = player:GetAttribute("Skulls") or 0
+	local gold = player:GetAttribute("Gold") or 0
+	local cost = Config.GetRebirthCost(rebirths)
+	local enough = gold >= cost
+
+	countLabel.Text = `Перерождений: {rebirths}`
+	multiplierLabel.Text = `Золото в Аптеке: x{Config.GetGoldMultiplier(rebirths)} → x{Config.GetGoldMultiplier(rebirths + 1)}`
+	skullsLabel.Text = `Чумные черепа: {skulls} → {skulls + Config.Rebirth.SkullsPerRebirth}`
+	costLabel.Text = `Нужно золота: {gold} / {cost}`
+	confirmButton.Text = if enough then "Начать новую эпидемию" else "Не хватает золота"
+	confirmButton.BackgroundColor3 = if enough then CONFIRM else DISABLED
+	confirmButton.AutoButtonColor = enough
+end
+
+for _, attr in { "Rebirths", "Skulls", "Gold" } do
+	player:GetAttributeChangedSignal(attr):Connect(refresh)
+end
+refresh()
+
+local busy = false
+confirmButton.Activated:Connect(function()
+	if busy then
+		return
+	end
+	busy = true
+	local ok, success = pcall(function()
+		return rebirthRemote:InvokeServer() -- сообщение покажет HUD
+	end)
+	if ok and success then
+		window.Visible = false
+	end
+	busy = false
+end)
+
+openButton.Activated:Connect(function()
+	window.Visible = not window.Visible
+	refresh()
+	-- Одно окно за раз: закрываем магазин
+	local other = player.PlayerGui:FindFirstChild("Shop")
+	local otherWindow = other and other:FindFirstChild("Window")
+	if window.Visible and otherWindow then
+		(otherWindow :: Frame).Visible = false
+	end
+end)
+closeButton.Activated:Connect(function()
+	window.Visible = false
+end)
+]])
+N[22] = game:GetService("ServerStorage")
+N[23] = ensure(N[22], "NPCTemplates", "Folder")
+N[24] = ensure(N[22], "PetModels", "Folder")
+N[25] = game:GetService("Workspace")
+N[26] = ensure(N[25], "Zones", "Folder")
+N[27] = ensure(N[26], "Village", "Folder")
+N[28] = ensure(N[27], "Infected", "Folder")
+N[29] = ensure(N[27], "Pharmacy", "Folder")
+N[30] = ensure(N[29], "SellPart", "Part", { Anchored = true, CanCollide = false, Transparency = 0.5, Size = Vector3.new(12, 1, 12), Position = Vector3.new(0, 0.5, 30), Color = Color3.new(0.25, 0.85, 0.35), Material = Enum.Material.Neon })
 removeObsolete("ReplicatedStorage/Shared/Config")
 
 if recording then

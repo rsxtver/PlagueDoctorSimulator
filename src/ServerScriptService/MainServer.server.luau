@@ -8,10 +8,12 @@ local DataService = require(Services:WaitForChild("DataService"))
 local InfectedService = require(Services:WaitForChild("InfectedService"))
 local PharmacyService = require(Services:WaitForChild("PharmacyService"))
 local UpgradeService = require(Services:WaitForChild("UpgradeService"))
+local RebirthService = require(Services:WaitForChild("RebirthService"))
 
 DataService.Init()
 InfectedService.Init()
 PharmacyService.Init()
 UpgradeService.Init()
+RebirthService.Init()
 
 print("[MainServer] Plague Doctor Simulator: сервер запущен")
